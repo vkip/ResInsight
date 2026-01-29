@@ -86,7 +86,8 @@ void RimWellPathValve::perforationIntervalUpdated()
         double                        endMD        = perfInterval->endMD();
         m_measuredDepth = std::clamp( m_measuredDepth(), std::min( startMD, endMD ), std::max( startMD, endMD ) );
     }
-    else if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD )
+    else if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD ||
+              componentType() == RiaDefines::WellPathComponentType::SICD )
     {
         m_multipleValveLocations->perforationIntervalUpdated();
     }
@@ -126,7 +127,8 @@ std::vector<double> RimWellPathValve::valveLocations() const
     {
         valveDepths.push_back( m_measuredDepth );
     }
-    else if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD )
+    else if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD ||
+              componentType() == RiaDefines::WellPathComponentType::SICD )
     {
         valveDepths = m_multipleValveLocations->valveLocations();
     }
@@ -206,6 +208,16 @@ void RimWellPathValve::applyValveLabelAndIcon()
                                .arg( m_multipleValveLocations->rangeEnd() );
         setName( fullName );
     }
+    else if ( componentType() == RiaDefines::WellPathComponentType::SICD )
+    {
+        setUiIconFromResourceString( ":/SICDValve16x16.png" );
+        QString fullName = QString( "%1 %2: %3 - %4" )
+                               .arg( m_multipleValveLocations->valveLocations().size() )
+                               .arg( componentLabel() )
+                               .arg( m_multipleValveLocations->rangeStart() )
+                               .arg( m_multipleValveLocations->rangeEnd() );
+        setName( fullName );
+    }
     else
     {
         setName( "Unspecified Valve" );
@@ -220,6 +232,18 @@ const RimWellPathAicdParameters* RimWellPathValve::aicdParameters() const
     if ( m_valveTemplate() )
     {
         return m_valveTemplate()->aicdParameters();
+    }
+    return nullptr;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+const RimWellPathSicdParameters* RimWellPathValve::sicdParameters() const
+{
+    if ( m_valveTemplate() )
+    {
+        return m_valveTemplate()->sicdParameters();
     }
     return nullptr;
 }
@@ -356,6 +380,17 @@ QString RimWellPathValve::componentLabel() const
             return "AICD";
         }
     }
+    else if ( componentType() == RiaDefines::WellPathComponentType::SICD )
+    {
+        if ( m_multipleValveLocations->valveLocations().size() > 1 )
+        {
+            return "SICDs";
+        }
+        else
+        {
+            return "SICD";
+        }
+    }
     else if ( componentType() == RiaDefines::WellPathComponentType::ICV )
     {
         return "ICV";
@@ -375,6 +410,10 @@ QString RimWellPathValve::componentTypeLabel() const
     else if ( componentType() == RiaDefines::WellPathComponentType::AICD )
     {
         return "AICD";
+    }
+    else if ( componentType() == RiaDefines::WellPathComponentType::SICD )
+    {
+        return "SICD";
     }
     else if ( componentType() == RiaDefines::WellPathComponentType::ICV )
     {
@@ -543,7 +582,8 @@ void RimWellPathValve::defineUiOrdering( QString uiConfigName, caf::PdmUiOrderin
             }
         }
 
-        if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD )
+        if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD ||
+             componentType() == RiaDefines::WellPathComponentType::SICD )
         {
             caf::PdmUiGroup* group = uiOrdering.addNewGroup( "Multiple Valve Locations" );
             m_multipleValveLocations->uiOrdering( uiConfigName, *group );

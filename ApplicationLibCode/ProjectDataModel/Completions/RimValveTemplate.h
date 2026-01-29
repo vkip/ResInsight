@@ -23,10 +23,12 @@
 
 #include "RimCheckableNamedObject.h"
 #include "RimWellPathAicdParameters.h"
+#include "RimWellPathSicdParameters.h"
 
 #include "cafPdmChildField.h"
 
 class RimWellPathAicdParameters;
+class RimWellPathSicdParameters;
 
 class RimValveTemplate : public RimNamedObject
 {
@@ -45,14 +47,17 @@ public:
     caf::AppEnum<RiaDefines::EclipseUnitSystem> templateUnits() const;
     double                                      orificeDiameter() const;
     double                                      flowCoefficient() const;
-    const RimWellPathAicdParameters*            aicdParameters() const;
     QString                                     typeLabel() const;
     QString                                     fullLabel() const;
     void                                        setUserLabel( const QString& userLabel );
     void                                        setOrificeDiameter( double diameter );
     void                                        setFlowCoefficient( double coefficient );
 
+    const RimWellPathAicdParameters* aicdParameters() const;
+    const RimWellPathSicdParameters* sicdParameters() const;
+
     void setAicdParameter( AICDParameters parameter, double value );
+    void setSicdParameter( SICDParameters parameter, double value );
 
     static double defaultOrificeDiameter();
     static double defaultFlowCoefficient();
@@ -78,4 +83,6 @@ private:
     caf::PdmField<double> m_flowCoefficient;
     // AICDs
     caf::PdmChildField<RimWellPathAicdParameters*> m_aicdParameters;
+    // SICDs
+    caf::PdmChildField<RimWellPathSicdParameters*> m_sicdParameters;
 };

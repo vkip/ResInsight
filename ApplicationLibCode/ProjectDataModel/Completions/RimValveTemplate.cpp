@@ -19,6 +19,7 @@
 #include "RimValveTemplate.h"
 
 #include "RimWellPathAicdParameters.h"
+#include "RimWellPathSicdParameters.h"
 #include "RimWellPathValve.h"
 
 #include "cafPdmFieldScriptingCapability.h"
@@ -54,6 +55,10 @@ RimValveTemplate::RimValveTemplate()
     CAF_PDM_InitScriptableFieldWithScriptKeywordNoDefault( &m_aicdParameters, "AICDParameters", "AicdParameters", "AICD Parameters" );
     m_aicdParameters = new RimWellPathAicdParameters;
     m_aicdParameters.uiCapability()->setUiTreeChildrenHidden( true );
+
+    CAF_PDM_InitScriptableFieldWithScriptKeywordNoDefault( &m_sicdParameters, "SICDParameters", "SicdParameters", "SICD Parameters" );
+    m_sicdParameters = new RimWellPathSicdParameters();
+    m_sicdParameters.uiCapability()->setUiTreeChildrenHidden( true );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -107,7 +112,7 @@ RiaDefines::WellPathComponentType RimValveTemplate::type() const
 void RimValveTemplate::setType( RiaDefines::WellPathComponentType type )
 {
     CAF_ASSERT( type == RiaDefines::WellPathComponentType::ICD || type == RiaDefines::WellPathComponentType::AICD ||
-                type == RiaDefines::WellPathComponentType::ICV );
+                type == RiaDefines::WellPathComponentType::ICV || type == RiaDefines::WellPathComponentType::SICD );
 
     m_type = type;
 }
@@ -142,6 +147,14 @@ double RimValveTemplate::flowCoefficient() const
 const RimWellPathAicdParameters* RimValveTemplate::aicdParameters() const
 {
     return m_aicdParameters;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+const RimWellPathSicdParameters* RimValveTemplate::sicdParameters() const
+{
+    return m_sicdParameters;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -193,6 +206,17 @@ void RimValveTemplate::setAicdParameter( AICDParameters parameter, double value 
     if ( m_aicdParameters() )
     {
         m_aicdParameters()->setValue( parameter, value );
+    }
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimValveTemplate::setSicdParameter( SICDParameters parameter, double value )
+{
+    if ( m_sicdParameters() )
+    {
+        m_sicdParameters()->setValue( parameter, value );
     }
 }
 
@@ -271,7 +295,8 @@ QList<caf::PdmOptionItemInfo> RimValveTemplate::calculateValueOptions( const caf
     {
         std::set<RiaDefines::WellPathComponentType> supportedTypes = { RiaDefines::WellPathComponentType::ICD,
                                                                        RiaDefines::WellPathComponentType::AICD,
-                                                                       RiaDefines::WellPathComponentType::ICV };
+                                                                       RiaDefines::WellPathComponentType::ICV,
+                                                                       RiaDefines::WellPathComponentType::SICD };
         for ( RiaDefines::WellPathComponentType type : supportedTypes )
         {
             options.push_back( caf::PdmOptionItemInfo( CompletionTypeEnum::uiText( type ), type ) );
@@ -306,10 +331,15 @@ void RimValveTemplate::defineUiOrdering( QString uiConfigName, caf::PdmUiOrderin
         group->add( &m_orificeDiameter );
         group->add( &m_flowCoefficient );
     }
-    else
+    else if ( m_type() == RiaDefines::WellPathComponentType::AICD )
     {
         caf::PdmUiGroup* group = uiOrdering.addNewGroup( "MSW AICD Parameters" );
         m_aicdParameters->uiOrdering( uiConfigName, *group );
+    }
+    else if ( m_type() == RiaDefines::WellPathComponentType::SICD )
+    {
+        caf::PdmUiGroup* group = uiOrdering.addNewGroup( "MSW SICD Parameters" );
+        m_sicdParameters->uiOrdering( uiConfigName, *group );
     }
 
     bool readOnly = uiConfigName == QString( "InsideValve" );
@@ -347,16 +377,21 @@ void RimValveTemplate::fieldChangedByUi( const caf::PdmFieldHandle* changedField
 void RimValveTemplate::defineUiTreeOrdering( caf::PdmUiTreeOrdering& uiTreeOrdering, QString uiConfigName /*= ""*/ )
 {
     setName( fullLabel() );
-    if ( m_type() == RiaDefines::WellPathComponentType::ICV )
+    switch ( m_type() )
     {
-        setUiIconFromResourceString( ":/ICVValve16x16.png" );
-    }
-    else if ( m_type() == RiaDefines::WellPathComponentType::ICD )
-    {
-        setUiIconFromResourceString( ":/ICDValve16x16.png" );
-    }
-    else if ( m_type() == RiaDefines::WellPathComponentType::AICD )
-    {
-        setUiIconFromResourceString( ":/AICDValve16x16.png" );
+        case RiaDefines::WellPathComponentType::ICV:
+            setUiIconFromResourceString( ":/ICVValve16x16.png" );
+            break;
+        case RiaDefines::WellPathComponentType::ICD:
+            setUiIconFromResourceString( ":/ICDValve16x16.png" );
+            break;
+        case RiaDefines::WellPathComponentType::AICD:
+            setUiIconFromResourceString( ":/AICDValve16x16.png" );
+            break;
+        case RiaDefines::WellPathComponentType::SICD:
+            setUiIconFromResourceString( ":/SICDValve16x16.png" );
+            break;
+        default:
+            break;
     }
 }

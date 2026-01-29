@@ -1,6 +1,6 @@
 /////////////////////////////////////////////////////////////////////////////////
 //
-//  Copyright (C) 2025- Equinor ASA
+//  Copyright (C) 2026 Equinor ASA
 //
 //  ResInsight is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -18,42 +18,26 @@
 
 #pragma once
 
-#include "RiaDefines.h"
-#include "RimValveTemplateCollection.h"
-
-#include "cafAppEnum.h"
 #include "cafPdmField.h"
 #include "cafPdmObjectHandle.h"
 #include "cafPdmObjectMethod.h"
+#include "cafPdmPtrField.h"
 
 #include <QString>
+
+class RimWellPathValve;
+class RimValveTemplate;
 
 //==================================================================================================
 ///
 //==================================================================================================
-class RimcValveTemplateCollection_add_template : public caf::PdmObjectCreationMethod
+class RimcWellPathValve_template : public caf::PdmObjectMethod
 {
     CAF_PDM_HEADER_INIT;
 
 public:
-    enum class ValveTemplateType
-    {
-        ICD,
-        ICV,
-        AICD,
-        SICD,
-        UNDEFINED
-    };
-
-public:
-    RimcValveTemplateCollection_add_template( caf::PdmObjectHandle* self );
+    RimcWellPathValve_template( caf::PdmObjectHandle* self );
 
     std::expected<caf::PdmObjectHandle*, QString> execute() override;
     QString                                       classKeywordReturnedType() const override;
-
-private:
-    caf::PdmField<caf::AppEnum<ValveTemplateType>> m_completionType;
-    caf::PdmField<double>                          m_orificeDiameter;
-    caf::PdmField<double>                          m_flowCoefficient;
-    caf::PdmField<QString>                         m_userLabel;
 };
