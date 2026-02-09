@@ -409,19 +409,19 @@ void RimWellLogCurveCommonDataSource::analyseCurvesAndTracks( const std::vector<
         }
         if ( track->showFormations() )
         {
-            m_uniqueTrajectoryTypes.insert( track->formationTrajectoryType() );
-            if ( track->formationTrajectoryType() == RimWellLogTrack::WELL_PATH )
+            m_uniqueTrajectoryTypes.insert( static_cast<int>( track->formationTrajectoryType() ) );
+            if ( track->formationTrajectoryType() == RiaDefines::WellLogTrackTrajectoryType::WELL_PATH )
             {
                 m_uniqueWellPaths.insert( track->formationWellPath() );
             }
-            else if ( track->formationTrajectoryType() == RimWellLogTrack::SIMULATION_WELL )
+            else if ( track->formationTrajectoryType() == RiaDefines::WellLogTrackTrajectoryType::SIMULATION_WELL )
             {
                 m_uniqueWellNames.insert( track->formationSimWellName() );
             }
             m_uniqueBranchDetection.insert( track->formationBranchDetection() );
             m_uniqueBranchIndices.insert( track->formationBranchIndex() );
 
-            m_uniqueCases.insert( track->formationNamesCase() );
+            m_uniqueCases.insert( track->formationCase() );
             m_uniqueWellPaths.insert( track->formationWellPath() );
         }
     }

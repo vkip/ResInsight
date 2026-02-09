@@ -224,9 +224,9 @@ ExtractionCurveType* RicWellLogTools::addExtractionCurve( RimWellLogTrack*      
         {
             caseToApply = commonDataSource->caseToApply();
         }
-        else if ( plotTrack->formationNamesCase() )
+        else if ( plotTrack->formationCase() )
         {
-            caseToApply = plotTrack->formationNamesCase();
+            caseToApply = plotTrack->formationCase();
         }
         else
         {
@@ -386,7 +386,7 @@ RimWellLogRftCurve* RicWellLogTools::addRftCurve( RimWellLogTrack* plotTrack, co
     curve->setColor( curveColor );
 
     plotTrack->addCurve( curve );
-    plotTrack->setFormationTrajectoryType( RimWellLogTrack::SIMULATION_WELL );
+    plotTrack->setFormationTrajectoryType( RiaDefines::WellLogTrackTrajectoryType::SIMULATION_WELL );
     plotTrack->updateConnectedEditors();
 
     RiaGuiApplication::instance()->getOrCreateMainPlotWindow();
