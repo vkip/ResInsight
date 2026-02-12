@@ -27,6 +27,8 @@
 #include "opm/input/eclipse/Parser/InputErrorAction.hpp"
 #include "opm/input/eclipse/Parser/ParseContext.hpp"
 #include "opm/input/eclipse/Parser/Parser.hpp"
+#include "opm/input/eclipse/Parser/ParserKeywords/A.hpp"
+#include "opm/input/eclipse/Parser/ParserKeywords/B.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/C.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/D.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/E.hpp"
@@ -219,6 +221,11 @@ static std::optional<Opm::FileDeck::Index> findSectionInsertionPoint( std::uniqu
 
     return insertIdx;
 }
+
+static std::map<std::string, std::string> blockKeywordNames =
+    { { Opm::ParserKeywords::ACTIONX::keywordName, Opm::ParserKeywords::ENDACTIO::keywordName },
+      { Opm::ParserKeywords::BOX::keywordName, Opm::ParserKeywords::ENDBOX::keywordName },
+      { Opm::ParserKeywords::ACTIONW::keywordName, Opm::ParserKeywords::ENDACTIO::keywordName } };
 
 } // namespace internal
 
@@ -937,7 +944,6 @@ bool RifOpmFlowDeckFile::replaceKeywordAtIndex( const Opm::FileDeck::Index& inde
 int RifOpmFlowDeckFile::removeKeywords( const std::string& keywordName )
 {
     int nRemoved = 0;
-
     if ( m_fileDeck.get() == nullptr ) return nRemoved;
 
     // Find all the matching keywords
@@ -948,6 +954,22 @@ int RifOpmFlowDeckFile::removeKeywords( const std::string& keywordName )
         if ( kw.name() == keywordName )
         {
             skipIndices.push_back( it );
+            // If this is a block keyword, we need to skip all keywords until the corresponding end block
+            if ( internal::blockKeywordNames.contains( keywordName ) )
+            {
+                const std::string endBlockName = internal::blockKeywordNames.at( keywordName );
+                while ( it != m_fileDeck->stop() )
+                {
+                    const auto& innerKw = m_fileDeck->operator[]( it );
+                    if ( innerKw.name() == endBlockName )
+                    {
+                        skipIndices.push_back( it );
+                        break;
+                    }
+                    skipIndices.push_back( it );
+                    it++;
+                }
+            }
         }
     }
 
