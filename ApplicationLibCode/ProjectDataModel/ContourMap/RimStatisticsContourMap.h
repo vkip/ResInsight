@@ -101,6 +101,7 @@ protected:
 
 private:
     void computeStatistics();
+    void onComputeStatisticsClicked();
     void doStatisticsCalculation( std::map<size_t, std::vector<std::vector<double>>>& timestep_results );
 
     RimFormationNames*           activeFormationNames() const;
@@ -113,7 +114,6 @@ private:
     caf::PdmField<RimContourMapProjection::ResultAggregation> m_resultAggregation;
     caf::PdmField<std::vector<int>>                           m_selectedTimeSteps;
     caf::PdmChildField<RimEclipseResultDefinition*>           m_resultDefinition;
-    caf::PdmField<bool>                                       m_computeStatisticsButton;
     caf::PdmField<bool>                                       m_enableFormationFilter;
     caf::PdmField<std::vector<QString>>                       m_selectedFormations;
     caf::PdmPtrField<RimEclipseCase*>                         m_primaryCase;
