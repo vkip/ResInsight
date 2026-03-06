@@ -102,6 +102,7 @@ RicMswValve::RicMswValve( const QString& label, const RimWellPath* wellPath, dou
     : RicMswCompletion( label, wellPath, startMD, startTVD )
     , m_wellPathValve( wellPathValve )
     , m_valid( false )
+    , m_isOpen( true )
 {
 }
 
@@ -127,6 +128,22 @@ bool RicMswValve::isValid() const
 void RicMswValve::setIsValid( bool valid )
 {
     m_valid = valid;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+bool RicMswValve::isOpen() const
+{
+    return m_isOpen;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RicMswValve::setIsOpen( bool openFlag )
+{
+    m_isOpen = openFlag;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -245,8 +262,7 @@ RicMswPerforationICV::RicMswPerforationICV( const QString&          label,
     setIsValid( true );
 
     setFlowCoefficient( wellPathValve->flowCoefficient() );
-    double orificeRadius = wellPathValve->orificeDiameter( wellPath->unitSystem() ) / 2;
-    setArea( orificeRadius * orificeRadius * cvf::PI_D );
+    setArea( wellPathValve->area( wellPath->unitSystem() ) );
 }
 
 //-------------------------------------------------------------------
@@ -352,10 +368,10 @@ RicMswTieInICV::RicMswTieInICV( const QString& label, const RimWellPath* wellPat
     : RicMswWsegValve( label, wellPath, startMD, startTVD, wellPathValve )
 {
     setIsValid( true );
+    setIsOpen( wellPathValve->isOpen() );
 
     setFlowCoefficient( wellPathValve->flowCoefficient() );
-    double orificeRadius = wellPathValve->orificeDiameter( wellPath->unitSystem() ) / 2;
-    setArea( orificeRadius * orificeRadius * cvf::PI_D );
+    setArea( wellPathValve->area( wellPath->unitSystem() ) );
 }
 
 //--------------------------------------------------------------------------------------------------

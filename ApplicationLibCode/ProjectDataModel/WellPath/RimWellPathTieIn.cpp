@@ -30,6 +30,8 @@
 
 #include "RiuMainWindow.h"
 
+#include "cafPdmFieldScriptingCapability.h"
+#include "cafPdmObjectScriptingCapability.h"
 #include "cafPdmUiDoubleSliderEditor.h"
 #include "cafPdmUiLabelEditor.h"
 
@@ -40,7 +42,12 @@ CAF_PDM_SOURCE_INIT( RimWellPathTieIn, "RimWellPathTieIn" );
 //--------------------------------------------------------------------------------------------------
 RimWellPathTieIn::RimWellPathTieIn()
 {
-    CAF_PDM_InitObject( "Well Path Tie In", ":/NotDefined.png", "", "Well Path Tie In description" );
+    CAF_PDM_InitScriptableObjectWithNameAndComment( "Well Path Tie In",
+                                                    ":/NotDefined.png",
+                                                    "",
+                                                    "Well Path Tie In description",
+                                                    "WellPathTimeIn",
+                                                    "A ResInsight Well Tie-in" );
 
     CAF_PDM_InitFieldNoDefault( &m_infoLabel, "InfoLabel", "Use right-click menu of well to set parent well." );
     m_infoLabel.uiCapability()->setUiEditorTypeName( caf::PdmUiLabelEditor::uiEditorTypeName() );
@@ -51,14 +58,15 @@ RimWellPathTieIn::RimWellPathTieIn()
     m_parentWell.uiCapability()->setUiReadOnly( true );
 
     CAF_PDM_InitFieldNoDefault( &m_childWell, "ChildWellPath", "ChildWellPath" );
-    CAF_PDM_InitFieldNoDefault( &m_tieInMeasuredDepth, "TieInMeasuredDepth", "Tie In Measured Depth" );
+    CAF_PDM_InitScriptableFieldNoDefault( &m_tieInMeasuredDepth, "TieInMeasuredDepth", "Tie In Measured Depth" );
     m_tieInMeasuredDepth.uiCapability()->setUiEditorTypeName( caf::PdmUiDoubleSliderEditor::uiEditorTypeName() );
 
-    CAF_PDM_InitField( &m_addValveAtConnection, "AddValveAtConnection", false, "Add Outlet Valve for Branches" );
+    CAF_PDM_InitScriptableField( &m_addValveAtConnection, "AddValveAtConnection", false, "Add Outlet Valve for Branch" );
 
-    CAF_PDM_InitFieldNoDefault( &m_valve, "Valve", "Branch Outlet Valve" );
+    CAF_PDM_InitScriptableFieldNoDefault( &m_valve, "Valve", "Branch Outlet Valve" );
+    CAF_PDM_InitScriptableField( &m_customOutletValveMD, "CustomOutletValveMd", std::make_pair( false, 0.0 ), "Outlet Valve Custom MD" );
 
-    m_valve = new RimWellPathValve;
+    m_valve = new RimWellPathValve();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -93,6 +101,53 @@ double RimWellPathTieIn::tieInMeasuredDepth() const
 void RimWellPathTieIn::setTieInMeasuredDepth( double measuredDepth )
 {
     m_tieInMeasuredDepth = measuredDepth;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+double RimWellPathTieIn::branchValveMeasuredDepth() const
+{
+    if ( m_customOutletValveMD().first )
+    {
+        return m_customOutletValveMD().second;
+    }
+    return m_tieInMeasuredDepth();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimWellPathTieIn::setBranchValveMeasuredDepth( double measuredDepth )
+{
+    m_customOutletValveMD = std::make_pair( true, measuredDepth );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimWellPathTieIn::useDefaultBranchValveMeasuredDepth()
+{
+    m_customOutletValveMD = std::make_pair( false, m_tieInMeasuredDepth() );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimWellPathTieIn::setBranchValveTemplate( RimValveTemplate* valveTemplate )
+{
+    if ( m_valve() )
+    {
+        m_valve()->setValveTemplate( valveTemplate );
+    }
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimWellPathTieIn::setEnableBranchValveAtConnection( bool enable )
+{
+    m_addValveAtConnection = enable;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -157,9 +212,16 @@ void RimWellPathTieIn::updateFirstTargetFromParentWell()
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-const RimWellPathValve* RimWellPathTieIn::outletValve() const
+RimWellPathValve* RimWellPathTieIn::outletValve() const
 {
-    return m_addValveAtConnection() && m_valve() && m_valve->valveTemplate() ? m_valve() : nullptr;
+    auto retVal = m_addValveAtConnection() && m_valve() && m_valve->valveTemplate() ? m_valve() : nullptr;
+
+    if ( retVal != nullptr )
+    {
+        retVal->setMeasuredDepthAndCount( branchValveMeasuredDepth(), 0.0, 1 );
+    }
+
+    return retVal;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -183,7 +245,9 @@ void RimWellPathTieIn::defineUiOrdering( QString uiConfigName, caf::PdmUiOrderin
 
         if ( m_addValveAtConnection )
         {
-            m_valve->uiOrdering( "TemplateOnly", *tieInGroup );
+            auto valveGrp = tieInGroup->addNewGroup( "Valve Options" );
+            valveGrp->add( &m_customOutletValveMD );
+            m_valve->uiOrdering( "TemplateOnly", *valveGrp );
         }
     }
 
@@ -217,6 +281,14 @@ void RimWellPathTieIn::fieldChangedByUi( const caf::PdmFieldHandle* changedField
     {
         RiuMainWindow::instance()->setExpanded( m_childWell );
         RiuMainWindow::instance()->selectAsCurrentItem( m_childWell );
+    }
+
+    if ( ( changedField == &m_customOutletValveMD ) && ( m_customOutletValveMD().first ) )
+    {
+        if ( m_customOutletValveMD().second == 0.0 )
+        {
+            m_customOutletValveMD.setValue( std::make_pair( true, m_tieInMeasuredDepth() ) );
+        }
     }
 }
 
@@ -253,7 +325,7 @@ void RimWellPathTieIn::defineEditorAttribute( const caf::PdmFieldHandle* field, 
 
             auto wellPathGeo = parentWell()->wellPathGeometry();
 
-            if ( wellPathGeo )
+            if ( wellPathGeo && wellPathGeo->measuredDepths().size() > 0 )
             {
                 minimumValue = wellPathGeo->measuredDepths().front();
                 maximumValue = wellPathGeo->measuredDepths().back();

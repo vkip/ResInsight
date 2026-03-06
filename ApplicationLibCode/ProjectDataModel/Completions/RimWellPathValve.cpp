@@ -30,6 +30,7 @@
 #include "RimMultipleValveLocations.h"
 #include "RimPerforationInterval.h"
 #include "RimProject.h"
+#include "RimValveCollection.h"
 #include "RimValveTemplate.h"
 #include "RimWellPath.h"
 
@@ -51,9 +52,8 @@ RimWellPathValve::RimWellPathValve()
 
     CAF_PDM_InitFieldNoDefault( &m_valveTemplate, "ValveTemplate", "Valve Template" );
     CAF_PDM_InitScriptableField( &m_measuredDepth, "StartMeasuredDepth", 0.0, "Start MD" );
+    CAF_PDM_InitScriptableField( &m_isOpen, "IsOpen", true, "Valve is Open" );
     CAF_PDM_InitFieldNoDefault( &m_multipleValveLocations, "ValveLocations", "Valve Locations" );
-    CAF_PDM_InitField( &m_editValveTemplate, "EditTemplate", false, "Edit" );
-    CAF_PDM_InitField( &m_createValveTemplate, "CreateTemplate", false, "Create" );
 
     CAF_PDM_InitField( &m_useCustomStartDate, "UseCustomStartDate", false, "Custom Start Date" );
     CAF_PDM_InitField( &m_startDate, "StartDate", QDateTime::currentDateTime(), "Start Date" );
@@ -61,10 +61,6 @@ RimWellPathValve::RimWellPathValve()
     m_measuredDepth.uiCapability()->setUiEditorTypeName( caf::PdmUiDoubleSliderEditor::uiEditorTypeName() );
     m_multipleValveLocations = new RimMultipleValveLocations;
     m_multipleValveLocations.uiCapability()->setUiTreeChildrenHidden( true );
-    m_editValveTemplate.uiCapability()->setUiLabelPosition( caf::PdmUiItemInfo::LabelPosition::HIDDEN );
-    m_editValveTemplate.uiCapability()->setUiEditorTypeName( caf::PdmUiToolButtonEditor::uiEditorTypeName() );
-    m_createValveTemplate.uiCapability()->setUiLabelPosition( caf::PdmUiItemInfo::LabelPosition::HIDDEN );
-    m_createValveTemplate.uiCapability()->setUiEditorTypeName( caf::PdmUiToolButtonEditor::uiEditorTypeName() );
 
     nameField()->uiCapability()->setUiReadOnly( true );
 
@@ -155,6 +151,15 @@ double RimWellPathValve::orificeDiameter( RiaDefines::EclipseUnitSystem unitSyst
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+double RimWellPathValve::area( RiaDefines::EclipseUnitSystem unitSystem ) const
+{
+    const double orificeRadius = orificeDiameter( unitSystem ) / 2.0;
+    return orificeRadius * orificeRadius * cvf::PI_D;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 double RimWellPathValve::flowCoefficient() const
 {
     if ( m_valveTemplate() )
@@ -163,6 +168,22 @@ double RimWellPathValve::flowCoefficient() const
         return templateCoefficient;
     }
     return 0.0;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+bool RimWellPathValve::isOpen() const
+{
+    return m_isOpen();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimWellPathValve::setOpen( bool openFlag )
+{
+    m_isOpen = openFlag;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -317,39 +338,46 @@ double RimWellPathValve::convertOrificeDiameter( double                        o
 //--------------------------------------------------------------------------------------------------
 std::vector<std::pair<double, double>> RimWellPathValve::valveSegments() const
 {
-    auto perforationInterval = firstAncestorOrThisOfType<RimPerforationInterval>();
-
     std::vector<std::pair<double, double>> segments;
-    if ( componentType() == RiaDefines::WellPathComponentType::ICV )
+
+    if ( auto perforationInterval = firstAncestorOrThisOfType<RimPerforationInterval>() )
     {
-        // Flow for ICV is defined as the complete perforation interval
-
-        segments.push_back( std::make_pair( perforationInterval->startMD(), perforationInterval->endMD() ) );
-    }
-    else
-    {
-        // ICD/AICD : Use the valve start/end, can be a subset of perforation interval
-
-        double startMD = this->startMD();
-        double endMD   = this->endMD();
-
-        std::vector<double> valveMDs = valveLocations();
-        segments.reserve( valveMDs.size() );
-
-        for ( size_t i = 0; i < valveMDs.size(); ++i )
+        if ( componentType() == RiaDefines::WellPathComponentType::ICV )
         {
-            double segmentStart = startMD;
-            double segmentEnd   = endMD;
-            if ( i > 0 )
-            {
-                segmentStart = 0.5 * ( valveMDs[i - 1] + valveMDs[i] );
-            }
-            if ( i < valveMDs.size() - 1u )
-            {
-                segmentEnd = 0.5 * ( valveMDs[i] + valveMDs[i + 1] );
-            }
-            segments.push_back( std::make_pair( segmentStart, segmentEnd ) );
+            // Flow for ICV is defined as the complete perforation interval
+
+            segments.push_back( std::make_pair( perforationInterval->startMD(), perforationInterval->endMD() ) );
         }
+        else
+        {
+            // ICD/AICD : Use the valve start/end, can be a subset of perforation interval
+
+            double startMD = this->startMD();
+            double endMD   = this->endMD();
+
+            std::vector<double> valveMDs = valveLocations();
+            segments.reserve( valveMDs.size() );
+
+            for ( size_t i = 0; i < valveMDs.size(); ++i )
+            {
+                double segmentStart = startMD;
+                double segmentEnd   = endMD;
+                if ( i > 0 )
+                {
+                    segmentStart = 0.5 * ( valveMDs[i - 1] + valveMDs[i] );
+                }
+                if ( i < valveMDs.size() - 1u )
+                {
+                    segmentEnd = 0.5 * ( valveMDs[i] + valveMDs[i + 1] );
+                }
+                segments.push_back( std::make_pair( segmentStart, segmentEnd ) );
+            }
+        }
+    }
+    else if ( firstAncestorOrThisOfType<RimValveCollection>() )
+    {
+        // stand-alone ICV valve
+        segments.emplace_back( startMD(), endMD() );
     }
 
     return segments;
@@ -368,8 +396,15 @@ void RimWellPathValve::setComponentTypeFilter( const std::set<RiaDefines::WellPa
 //--------------------------------------------------------------------------------------------------
 bool RimWellPathValve::isEnabled() const
 {
-    auto perforationInterval = firstAncestorOrThisOfType<RimPerforationInterval>();
-    return perforationInterval->isEnabled() && isChecked();
+    if ( auto perforationInterval = firstAncestorOrThisOfType<RimPerforationInterval>() )
+    {
+        return perforationInterval->isEnabled() && isChecked();
+    }
+    if ( auto valveCollection = firstAncestorOrThisOfType<RimValveCollection>() )
+    {
+        return valveCollection->isChecked() && isChecked();
+    }
+    return false;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -528,17 +563,20 @@ QList<caf::PdmOptionItemInfo> RimWellPathValve::calculateValueOptions( const caf
 {
     QList<caf::PdmOptionItemInfo> options;
 
-    RimProject* project = RimProject::current();
-
-    std::vector<RimValveTemplate*> allTemplates = project->allValveTemplates();
-    for ( RimValveTemplate* valveTemplate : allTemplates )
+    if ( fieldNeedingOptions == &m_valveTemplate )
     {
-        if ( !m_componentTypeFilter.empty() )
-        {
-            if ( m_componentTypeFilter.count( valveTemplate->type() ) == 0 ) continue;
-        }
+        RimProject* project = RimProject::current();
 
-        options.push_back( caf::PdmOptionItemInfo( valveTemplate->name(), valveTemplate ) );
+        std::vector<RimValveTemplate*> allTemplates = project->allValveTemplates();
+        for ( RimValveTemplate* valveTemplate : allTemplates )
+        {
+            if ( !m_componentTypeFilter.empty() )
+            {
+                if ( m_componentTypeFilter.count( valveTemplate->type() ) == 0 ) continue;
+            }
+
+            options.push_back( caf::PdmOptionItemInfo( valveTemplate->name(), valveTemplate ) );
+        }
     }
 
     return options;
@@ -553,15 +591,6 @@ void RimWellPathValve::fieldChangedByUi( const caf::PdmFieldHandle* changedField
     {
         applyValveLabelAndIcon();
         updateConnectedEditors();
-    }
-    else if ( changedField == &m_createValveTemplate )
-    {
-        m_createValveTemplate = false;
-        RicNewValveTemplateFeature::createNewValveTemplateForValveAndUpdate( this );
-    }
-    else if ( changedField == &m_editValveTemplate )
-    {
-        Riu3DMainWindowTools::selectAsCurrentItem( m_valveTemplate() );
     }
 
     auto perfInterval = firstAncestorOrThisOfType<RimPerforationInterval>();
@@ -581,14 +610,14 @@ void RimWellPathValve::defineUiOrdering( QString uiConfigName, caf::PdmUiOrderin
 {
     uiOrdering.skipRemainingFields( true );
 
-    uiOrdering.add( &m_valveTemplate, { .totalColumnSpan = 2, .leftLabelColumnSpan = 1 } );
+    uiOrdering.add( &m_valveTemplate );
 
     {
         if ( m_valveTemplate() != nullptr )
         {
-            uiOrdering.appendToRow( &m_editValveTemplate );
+            uiOrdering.addNewButton( "Edit Template", [this]() { Riu3DMainWindowTools::selectAsCurrentItem( m_valveTemplate() ); } );
         }
-        uiOrdering.appendToRow( &m_createValveTemplate );
+        uiOrdering.addNewButton( "Create Template", [this]() { RicNewValveTemplateFeature::createNewValveTemplateForValveAndUpdate( this ); } );
     }
 
     if ( uiConfigName != "TemplateOnly" )
@@ -612,6 +641,8 @@ void RimWellPathValve::defineUiOrdering( QString uiConfigName, caf::PdmUiOrderin
                 uiOrdering.add( &m_measuredDepth, { .totalColumnSpan = 3, .leftLabelColumnSpan = 1 } );
             }
         }
+
+        uiOrdering.add( &m_isOpen );
 
         if ( componentType() == RiaDefines::WellPathComponentType::ICD || componentType() == RiaDefines::WellPathComponentType::AICD ||
              componentType() == RiaDefines::WellPathComponentType::SICD )

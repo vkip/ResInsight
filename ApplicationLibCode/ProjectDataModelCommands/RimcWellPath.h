@@ -31,6 +31,7 @@ class RimStimPlanFractureTemplate;
 class RimThermalFractureTemplate;
 class RimEclipseCase;
 class RimWellPath;
+class RimValveTemplate;
 
 //==================================================================================================
 ///
@@ -195,4 +196,55 @@ public:
 
     std::expected<caf::PdmObjectHandle*, QString> execute() override;
     QString                                       classKeywordReturnedType() const override;
+};
+
+//==================================================================================================
+///
+//==================================================================================================
+class RimcWellPath_enableOutletValve : public caf::PdmObjectMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimcWellPath_enableOutletValve( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+
+private:
+    caf::PdmField<bool>                 m_enabled;
+    caf::PdmPtrField<RimValveTemplate*> m_template;
+    caf::PdmField<bool>                 m_useCustomMd;
+    caf::PdmField<double>               m_customMd;
+};
+
+//==================================================================================================
+///
+//==================================================================================================
+class RimcWellPath_tieIn : public caf::PdmObjectMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimcWellPath_tieIn( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+};
+
+//==================================================================================================
+///
+//==================================================================================================
+class RimcWellPath_addIcvValve : public caf::PdmObjectCreationMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimcWellPath_addIcvValve( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+
+private:
+    caf::PdmField<double> m_measuredDepth;
 };

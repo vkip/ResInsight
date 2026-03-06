@@ -56,11 +56,15 @@ public:
     std::vector<double>              valveLocations() const;
     double                           orificeDiameter( RiaDefines::EclipseUnitSystem unitSystem ) const;
     double                           flowCoefficient() const;
+    double                           area( RiaDefines::EclipseUnitSystem unitSystem ) const;
     RimValveTemplate*                valveTemplate() const;
     void                             setValveTemplate( RimValveTemplate* valveTemplate );
     void                             applyValveLabelAndIcon();
     const RimWellPathAicdParameters* aicdParameters() const;
     const RimWellPathSicdParameters* sicdParameters() const;
+
+    bool isOpen() const;
+    void setOpen( bool openFlag );
 
     void enableCustomStartDate( bool enable );
     void setCustomStartDate( const QDate& date );
@@ -96,9 +100,8 @@ private:
 private:
     caf::PdmPtrField<RimValveTemplate*>            m_valveTemplate;
     caf::PdmField<double>                          m_measuredDepth;
+    caf::PdmField<bool>                            m_isOpen;
     caf::PdmChildField<RimMultipleValveLocations*> m_multipleValveLocations;
-    caf::PdmField<bool>                            m_editValveTemplate;
-    caf::PdmField<bool>                            m_createValveTemplate;
 
     caf::PdmField<bool>      m_useCustomStartDate;
     caf::PdmField<QDateTime> m_startDate;

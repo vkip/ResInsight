@@ -45,6 +45,7 @@
 #include "RimProject.h"
 #include "RimStimPlanModelCollection.h"
 #include "RimTools.h"
+#include "RimValveCollection.h"
 #include "RimWellEventTimeline.h"
 #include "RimWellIASettingsCollection.h"
 #include "RimWellLogChannel.h"
@@ -61,6 +62,7 @@
 #include "RiuMainWindow.h"
 
 #include "cafPdmFieldScriptingCapability.h"
+#include "cafPdmObjectScriptingCapability.h"
 #include "cafPdmUiTreeAttributes.h"
 #include "cafPdmUiTreeOrdering.h"
 #include "cafPdmUiTreeViewEditor.h"
@@ -148,7 +150,7 @@ RimWellPath::RimWellPath()
     m_wellPathAttributes = new RimWellPathAttributeCollection;
     m_wellPathAttributes->uiCapability()->setUiTreeHidden( true );
 
-    CAF_PDM_InitFieldNoDefault( &m_wellPathTieIn, "WellPathTieIn", "well Path Tie-In" );
+    CAF_PDM_InitFieldNoDefault( &m_wellPathTieIn, "WellPathTieIn", "Well Path Tie-In" );
     m_wellPathTieIn = new RimWellPathTieIn;
     m_wellPathTieIn->connectWellPaths( nullptr, this, 0.0 );
 
@@ -285,6 +287,16 @@ RimPerforationCollection* RimWellPath::perforationIntervalCollection()
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+RimValveCollection* RimWellPath::valveCollection() const
+{
+    CVF_ASSERT( m_completions );
+
+    return m_completions->valveCollection();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 const RimPerforationCollection* RimWellPath::perforationIntervalCollection() const
 {
     CVF_ASSERT( m_completions );
@@ -415,7 +427,7 @@ const RigWellPath* RimWellPath::wellPathGeometry() const
 //--------------------------------------------------------------------------------------------------
 double RimWellPath::startMD() const
 {
-    if ( wellPathGeometry() )
+    if ( wellPathGeometry() && wellPathGeometry()->measuredDepths().size() > 0 )
     {
         return wellPathGeometry()->measuredDepths().front();
     }
@@ -427,7 +439,7 @@ double RimWellPath::startMD() const
 //--------------------------------------------------------------------------------------------------
 double RimWellPath::endMD() const
 {
-    if ( wellPathGeometry() )
+    if ( wellPathGeometry() && wellPathGeometry()->measuredDepths().size() > 0 )
     {
         return wellPathGeometry()->measuredDepths().back();
     }
@@ -773,7 +785,10 @@ void RimWellPath::defineUiTreeOrdering( caf::PdmUiTreeOrdering& uiTreeOrdering, 
     {
         uiTreeOrdering.add( m_completionSettings() );
     }
-
+    if ( m_completions->valveCollection()->hasValves() )
+    {
+        uiTreeOrdering.add( m_completions->valveCollection() );
+    }
     if ( m_completions->fishbonesCollection()->hasFishbones() )
     {
         uiTreeOrdering.add( m_completions->fishbonesCollection() );
