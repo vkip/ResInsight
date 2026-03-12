@@ -740,8 +740,7 @@ cvf::TextureImage* RivContourMapProjectionPartMgr::createTexture( const RigConto
     cvf::TextureImage* textureImage = new cvf::TextureImage();
     textureImage->allocate( width, height );
 
-    auto         dataValues = contourMapProjection->aggregatedVertexResultsFiltered();
-    const double inf        = std::numeric_limits<double>::infinity();
+    auto dataValues = contourMapProjection->aggregatedVertexResultsFiltered();
 
     for ( int py = 0; py < height; ++py )
     {
@@ -769,18 +768,39 @@ cvf::TextureImage* RivContourMapProjectionPartMgr::createTexture( const RigConto
             double v01 = dataValues[contourMapProjection->vertexIndex( x0, y1 )];
             double v11 = dataValues[contourMapProjection->vertexIndex( x1, y1 )];
 
-            // Any undefined corner → transparent pixel.
-            if ( std::isinf( v00 ) || std::isinf( v10 ) || std::isinf( v01 ) || std::isinf( v11 ) )
+            // Bilinear weights for each corner.
+            double w00 = ( 1.0 - tx ) * ( 1.0 - ty );
+            double w10 = tx * ( 1.0 - ty );
+            double w01 = ( 1.0 - tx ) * ty;
+            double w11 = tx * ty;
+
+            // Accumulate only valid (non-infinity) corners. The sum of their weights
+            // becomes the alpha, giving a smooth anti-aliased edge.
+            double validWeight   = 0.0;
+            double weightedValue = 0.0;
+            auto   accumulate    = [&]( double v, double w )
+            {
+                if ( !std::isinf( v ) )
+                {
+                    validWeight += w;
+                    weightedValue += v * w;
+                }
+            };
+            accumulate( v00, w00 );
+            accumulate( v10, w10 );
+            accumulate( v01, w01 );
+            accumulate( v11, w11 );
+
+            if ( validWeight < 1e-10 )
             {
                 textureImage->setPixel( px, py, cvf::Color4ub( 0, 0, 0, 0 ) );
                 continue;
             }
 
-            double value = ( 1.0 - tx ) * ( 1.0 - ty ) * v00 + tx * ( 1.0 - ty ) * v10 +
-                           ( 1.0 - tx ) * ty * v01 + tx * ty * v11;
-
-            auto color = scalarMapper->mapToColor( value );
-            textureImage->setPixel( px, py, cvf::Color4ub( color, 255 ) );
+            double value = weightedValue / validWeight;
+            auto   color = scalarMapper->mapToColor( value );
+            int    alpha = static_cast<int>( validWeight * 255.0 + 0.5 );
+            textureImage->setPixel( px, py, cvf::Color4ub( color, alpha ) );
         }
     }
 
