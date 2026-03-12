@@ -52,6 +52,7 @@
 #include "cvfViewport.h"
 #include "cvfqtUtils.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include <QDebug>
@@ -728,24 +729,58 @@ cvf::TextureImage* RivContourMapProjectionPartMgr::createTexture( const RigConto
     if ( !contourMapProjection || !scalarMapper ) return nullptr;
 
     auto vertexSizeIJ = contourMapProjection->numberOfVerticesIJ();
-    int  width        = static_cast<int>( vertexSizeIJ.x() );
-    int  height       = static_cast<int>( vertexSizeIJ.y() );
+    int  vertWidth    = static_cast<int>( vertexSizeIJ.x() );
+    int  vertHeight   = static_cast<int>( vertexSizeIJ.y() );
+
+    // Scale up the texture and bilinearly interpolate to reduce block artefacts.
+    constexpr int scale  = 4;
+    int           width  = vertWidth * scale;
+    int           height = vertHeight * scale;
 
     cvf::TextureImage* textureImage = new cvf::TextureImage();
     textureImage->allocate( width, height );
 
-    auto dataValues = contourMapProjection->aggregatedVertexResultsFiltered();
+    auto         dataValues = contourMapProjection->aggregatedVertexResultsFiltered();
+    const double inf        = std::numeric_limits<double>::infinity();
 
-    for ( int y = 0; y < height; ++y )
+    for ( int py = 0; py < height; ++py )
     {
-        for ( int x = 0; x < width; ++x )
+        for ( int px = 0; px < width; ++px )
         {
-            size_t index        = contourMapProjection->vertexIndex( x, y );
-            double valueAtVertex = dataValues[index];
-            auto   color        = scalarMapper->mapToColor( valueAtVertex );
+            // Map pixel centre to fractional vertex-space coordinates.
+            double fx = ( px + 0.5 ) / scale - 0.5;
+            double fy = ( py + 0.5 ) / scale - 0.5;
 
-            int transparency = ( valueAtVertex != std::numeric_limits<double>::infinity() ) ? 255 : 0;
-            textureImage->setPixel( x, y, cvf::Color4ub( color, transparency ) );
+            int x0 = static_cast<int>( std::floor( fx ) );
+            int y0 = static_cast<int>( std::floor( fy ) );
+            int x1 = x0 + 1;
+            int y1 = y0 + 1;
+
+            double tx = fx - x0;
+            double ty = fy - y0;
+
+            x0 = std::clamp( x0, 0, vertWidth - 1 );
+            x1 = std::clamp( x1, 0, vertWidth - 1 );
+            y0 = std::clamp( y0, 0, vertHeight - 1 );
+            y1 = std::clamp( y1, 0, vertHeight - 1 );
+
+            double v00 = dataValues[contourMapProjection->vertexIndex( x0, y0 )];
+            double v10 = dataValues[contourMapProjection->vertexIndex( x1, y0 )];
+            double v01 = dataValues[contourMapProjection->vertexIndex( x0, y1 )];
+            double v11 = dataValues[contourMapProjection->vertexIndex( x1, y1 )];
+
+            // Any undefined corner → transparent pixel.
+            if ( std::isinf( v00 ) || std::isinf( v10 ) || std::isinf( v01 ) || std::isinf( v11 ) )
+            {
+                textureImage->setPixel( px, py, cvf::Color4ub( 0, 0, 0, 0 ) );
+                continue;
+            }
+
+            double value = ( 1.0 - tx ) * ( 1.0 - ty ) * v00 + tx * ( 1.0 - ty ) * v10 +
+                           ( 1.0 - tx ) * ty * v01 + tx * ty * v11;
+
+            auto color = scalarMapper->mapToColor( value );
+            textureImage->setPixel( px, py, cvf::Color4ub( color, 255 ) );
         }
     }
 
