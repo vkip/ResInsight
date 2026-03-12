@@ -22,7 +22,6 @@
 #include "RiaFontCache.h"
 
 #include "ContourMap/RigContourMapGrid.h"
-#include "ContourMap/RigContourMapProjection.h"
 #include "ContourMap/RigContourPolygonsTools.h"
 
 #include "RivMeshLinesSourceInfo.h"
@@ -40,19 +39,10 @@
 #include "cvfPart.h"
 #include "cvfPrimitiveSetIndexedUInt.h"
 #include "cvfRay.h"
-#include "cvfRenderStateBlending.h"
-#include "cvfRenderStateTextureBindings.h"
-#include "cvfSampler.h"
 #include "cvfScalarMapper.h"
-#include "cvfShaderProgram.h"
-#include "cvfShaderProgramGenerator.h"
-#include "cvfShaderSourceProvider.h"
-#include "cvfTexture.h"
-#include "cvfTextureImage.h"
 #include "cvfViewport.h"
 #include "cvfqtUtils.h"
 
-#include <algorithm>
 #include <cmath>
 
 #include <QDebug>
@@ -66,12 +56,6 @@ RivContourMapProjectionPartMgr::RivContourMapProjectionPartMgr( caf::PdmObject* 
     m_pdmObject = pdmObject;
 
     m_labelEffect = new cvf::Effect;
-
-    cvf::ShaderProgramGenerator gen( "Texturing", cvf::ShaderSourceProvider::instance() );
-    gen.addVertexCode( cvf::ShaderSourceRepository::vs_Standard );
-    gen.addFragmentCode( cvf::ShaderSourceRepository::src_Texture );
-    gen.addFragmentCode( cvf::ShaderSourceRepository::fs_Unlit );
-    m_textureShaderProg = gen.generate();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -600,209 +584,4 @@ bool RivContourMapProjectionPartMgr::lineOverlapsWithPreviousContourLevel( const
                                                                            double                                          tolerance )
 {
     return RigContourPolygonsTools::lineOverlapsWithContourPolygons( lineCenter, previousLevel, tolerance );
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-void RivContourMapProjectionPartMgr::appendProjectionAsTexturedQuad( cvf::ModelBasicList*              model,
-                                                                     const caf::DisplayCoordTransform* displayCoordTransform,
-                                                                     cvf::ScalarMapper*                scalarMapper,
-                                                                     const RigContourMapProjection&    contourMapProjection,
-                                                                     const RigContourMapGrid&          contourMapGrid )
-{
-    auto expandedBB = contourMapGrid.expandedBoundingBox();
-
-    cvf::Vec3dArray domainCoords;
-    domainCoords.reserve( 4 );
-    domainCoords.add( expandedBB.min() );
-    domainCoords.add( cvf::Vec3d( expandedBB.max().x(), expandedBB.min().y(), expandedBB.min().z() ) );
-    domainCoords.add( expandedBB.max() );
-    domainCoords.add( cvf::Vec3d( expandedBB.min().x(), expandedBB.max().y(), expandedBB.min().z() ) );
-
-    double zValueForContourMap = contourMapGrid.origin3d().z();
-    zValueForContourMap += 0.3 * zValueForContourMap;
-
-    cvf::Vec3dArray displayCoords;
-    displayCoords.reserve( 4 );
-    for ( int i = 0; i < 4; i++ )
-    {
-        auto displayCoord = displayCoordTransform->transformToDisplayCoord( domainCoords[i] );
-        displayCoord.z()  = zValueForContourMap;
-        displayCoords.add( displayCoord );
-    }
-
-    auto textureImage = RivContourMapProjectionPartMgr::createTexture( &contourMapProjection, scalarMapper );
-
-    bool transparent = true;
-    auto part        = createSingleTexturedQuadPart( displayCoords, textureImage, transparent );
-    part->setSourceInfo( new RivObjectSourceInfo( m_pdmObject.p() ) );
-    part->setPriority( RivPartPriority::BaseLevel );
-
-    model->addPart( part.p() );
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-cvf::ref<cvf::DrawableGeo> RivContourMapProjectionPartMgr::createXYPlaneQuadGeoWithTexCoords( const cvf::Vec3dArray& cornerPoints )
-{
-    cvf::ref<cvf::Vec3fArray> vertices = new cvf::Vec3fArray;
-    vertices->reserve( 4 );
-    for ( const auto& v : cornerPoints )
-    {
-        vertices->add( cvf::Vec3f( v ) );
-    }
-
-    cvf::ref<cvf::Vec2fArray> texCoords = new cvf::Vec2fArray;
-    texCoords->reserve( 4 );
-    texCoords->add( cvf::Vec2f( 0, 0 ) );
-    texCoords->add( cvf::Vec2f( 1, 0 ) );
-    texCoords->add( cvf::Vec2f( 1, 1 ) );
-    texCoords->add( cvf::Vec2f( 0, 1 ) );
-
-    cvf::ref<cvf::DrawableGeo> geo = new cvf::DrawableGeo;
-    geo->setVertexArray( vertices.p() );
-    geo->setTextureCoordArray( texCoords.p() );
-
-    cvf::ref<cvf::UIntArray> indices = new cvf::UIntArray;
-    indices->reserve( 6 );
-    for ( uint i : { 0u, 1u, 2u, 0u, 2u, 3u } )
-    {
-        indices->add( i );
-    }
-
-    cvf::ref<cvf::PrimitiveSetIndexedUInt> primSet = new cvf::PrimitiveSetIndexedUInt( cvf::PT_TRIANGLES );
-    primSet->setIndices( indices.p() );
-    geo->addPrimitiveSet( primSet.p() );
-    geo->computeNormals();
-
-    return geo;
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-cvf::ref<cvf::Part> RivContourMapProjectionPartMgr::createSingleTexturedQuadPart( const cvf::Vec3dArray&      cornerPoints,
-                                                                                  cvf::ref<cvf::TextureImage> image,
-                                                                                  bool                        transparent )
-{
-    cvf::ref<cvf::Part> part = new cvf::Part;
-
-    cvf::ref<cvf::DrawableGeo> geo = createXYPlaneQuadGeoWithTexCoords( cornerPoints );
-
-    cvf::ref<cvf::Texture> texture = new cvf::Texture( image.p() );
-    cvf::ref<cvf::Sampler> sampler = new cvf::Sampler;
-    sampler->setMinFilter( cvf::Sampler::LINEAR );
-    sampler->setMagFilter( cvf::Sampler::NEAREST );
-    sampler->setWrapModeS( cvf::Sampler::CLAMP_TO_EDGE );
-    sampler->setWrapModeT( cvf::Sampler::CLAMP_TO_EDGE );
-
-    cvf::ref<cvf::RenderStateTextureBindings> textureBindings = new cvf::RenderStateTextureBindings;
-    textureBindings->addBinding( texture.p(), sampler.p(), "u_texture2D" );
-
-    cvf::ref<cvf::Effect> eff = new cvf::Effect;
-    eff->setRenderState( textureBindings.p() );
-    eff->setShaderProgram( m_textureShaderProg.p() );
-
-    if ( transparent )
-    {
-        part->setPriority( RivPartPriority::PartType::TransparentSeismic );
-        cvf::ref<cvf::RenderStateBlending> blending = new cvf::RenderStateBlending;
-        blending->configureTransparencyBlending();
-        eff->setRenderState( blending.p() );
-    }
-
-    part->setDrawable( geo.p() );
-    part->updateBoundingBox();
-    part->setEffect( eff.p() );
-
-    return part;
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-cvf::TextureImage* RivContourMapProjectionPartMgr::createTexture( const RigContourMapProjection* contourMapProjection,
-                                                                  cvf::ScalarMapper*             scalarMapper )
-{
-    if ( !contourMapProjection || !scalarMapper ) return nullptr;
-
-    auto vertexSizeIJ = contourMapProjection->numberOfVerticesIJ();
-    int  vertWidth    = static_cast<int>( vertexSizeIJ.x() );
-    int  vertHeight   = static_cast<int>( vertexSizeIJ.y() );
-
-    // Scale up the texture and bilinearly interpolate to reduce block artefacts.
-    constexpr int scale  = 4;
-    int           width  = vertWidth * scale;
-    int           height = vertHeight * scale;
-
-    cvf::TextureImage* textureImage = new cvf::TextureImage();
-    textureImage->allocate( width, height );
-
-    auto dataValues = contourMapProjection->aggregatedVertexResultsFiltered();
-
-    for ( int py = 0; py < height; ++py )
-    {
-        for ( int px = 0; px < width; ++px )
-        {
-            // Map pixel centre to fractional vertex-space coordinates.
-            double fx = ( px + 0.5 ) / scale - 0.5;
-            double fy = ( py + 0.5 ) / scale - 0.5;
-
-            int x0 = static_cast<int>( std::floor( fx ) );
-            int y0 = static_cast<int>( std::floor( fy ) );
-            int x1 = x0 + 1;
-            int y1 = y0 + 1;
-
-            double tx = fx - x0;
-            double ty = fy - y0;
-
-            x0 = std::clamp( x0, 0, vertWidth - 1 );
-            x1 = std::clamp( x1, 0, vertWidth - 1 );
-            y0 = std::clamp( y0, 0, vertHeight - 1 );
-            y1 = std::clamp( y1, 0, vertHeight - 1 );
-
-            double v00 = dataValues[contourMapProjection->vertexIndex( x0, y0 )];
-            double v10 = dataValues[contourMapProjection->vertexIndex( x1, y0 )];
-            double v01 = dataValues[contourMapProjection->vertexIndex( x0, y1 )];
-            double v11 = dataValues[contourMapProjection->vertexIndex( x1, y1 )];
-
-            // Bilinear weights for each corner.
-            double w00 = ( 1.0 - tx ) * ( 1.0 - ty );
-            double w10 = tx * ( 1.0 - ty );
-            double w01 = ( 1.0 - tx ) * ty;
-            double w11 = tx * ty;
-
-            // Accumulate only valid (non-infinity) corners. The sum of their weights
-            // becomes the alpha, giving a smooth anti-aliased edge.
-            double validWeight   = 0.0;
-            double weightedValue = 0.0;
-            auto   accumulate    = [&]( double v, double w )
-            {
-                if ( !std::isinf( v ) )
-                {
-                    validWeight += w;
-                    weightedValue += v * w;
-                }
-            };
-            accumulate( v00, w00 );
-            accumulate( v10, w10 );
-            accumulate( v01, w01 );
-            accumulate( v11, w11 );
-
-            if ( validWeight < 1e-10 )
-            {
-                textureImage->setPixel( px, py, cvf::Color4ub( 0, 0, 0, 0 ) );
-                continue;
-            }
-
-            double value = weightedValue / validWeight;
-            auto   color = scalarMapper->mapToColor( value );
-            int    alpha = static_cast<int>( validWeight * 255.0 + 0.5 );
-            textureImage->setPixel( px, py, cvf::Color4ub( color, alpha ) );
-        }
-    }
-
-    return textureImage;
 }

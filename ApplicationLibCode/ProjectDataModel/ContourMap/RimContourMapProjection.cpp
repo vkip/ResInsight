@@ -109,8 +109,6 @@ RimContourMapProjection::RimContourMapProjection()
     CAF_PDM_InitField( &m_showContourLines, "ContourLines", true, "Show Contour Lines" );
     CAF_PDM_InitField( &m_showContourLabels, "ContourLabels", true, "Show Contour Labels" );
     CAF_PDM_InitField( &m_smoothContourLines, "SmoothContourLines", true, "Smooth Contour Lines" );
-    CAF_PDM_InitField( &m_showTextureImage, "ShowImage", true, "Show Texture Image" );
-    CAF_PDM_InitField( &m_showTrianglesWithColor, "ShowTrianglesWithColor", false, "Show Triangles with Color" );
 
     auto defaultValue = caf::AppEnum<RimIntersectionFilterEnum>( RimIntersectionFilterEnum::INTERSECT_FILTER_NONE );
     CAF_PDM_InitField( &m_valueFilterType, "ValueFilterType", defaultValue, "Value Filter" );
@@ -210,16 +208,13 @@ void RimContourMapProjection::generateGeometryIfNecessary()
             }
         }
 
-        if ( showTrianglesWithColor() )
-        {
-            m_trianglesWithVertexValues = RigContourMapTrianglesGenerator::generateTrianglesWithVertexValues( *m_contourMapGrid,
-                                                                                                              *m_contourMapProjection,
-                                                                                                              m_contourPolygons,
-                                                                                                              contourLevels,
-                                                                                                              m_contourLevelCumulativeAreas,
-                                                                                                              discrete,
-                                                                                                              sampleSpacing() );
-        }
+        m_trianglesWithVertexValues = RigContourMapTrianglesGenerator::generateTrianglesWithVertexValues( *m_contourMapGrid,
+                                                                                                          *m_contourMapProjection,
+                                                                                                          m_contourPolygons,
+                                                                                                          contourLevels,
+                                                                                                          m_contourLevelCumulativeAreas,
+                                                                                                          discrete,
+                                                                                                          sampleSpacing() );
     }
     progress.setProgress( 100 );
 }
@@ -271,22 +266,6 @@ bool RimContourMapProjection::showContourLines() const
 bool RimContourMapProjection::showContourLabels() const
 {
     return m_showContourLabels();
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-bool RimContourMapProjection::showImage() const
-{
-    return m_showTextureImage();
-}
-
-//--------------------------------------------------------------------------------------------------
-///
-//--------------------------------------------------------------------------------------------------
-bool RimContourMapProjection::showTrianglesWithColor() const
-{
-    return m_showTrianglesWithColor();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -636,8 +615,6 @@ void RimContourMapProjection::defineUiOrdering( QString uiConfigName, caf::PdmUi
 
     legendConfig()->uiOrdering( "NumLevelsOnly", *mainGroup );
     mainGroup->add( &m_resolution );
-    mainGroup->add( &m_showTextureImage );
-    mainGroup->add( &m_showTrianglesWithColor );
     mainGroup->add( &m_showContourLines );
     mainGroup->add( &m_showContourLabels );
     m_showContourLabels.uiCapability()->setUiReadOnly( !m_showContourLines() );
