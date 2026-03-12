@@ -383,6 +383,7 @@ bool RimWellEventTimeline::applyEventsUpToDate( const QDateTime& date )
     // Update views if any events were applied
     if ( anyEventApplied )
     {
+        wellPathCollection->updateAllRequiredEditors();
         RimProject::current()->scheduleCreateDisplayModelAndRedrawAllViews();
     }
 
