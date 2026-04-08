@@ -45,10 +45,12 @@
 
 #include <QTextStream>
 
-namespace caf
+// pdmToVariant/pdmFromVariant in namespace cvf so ADL finds them when called via caf::toVariant/
+// caf::fromVariant — ADL searches the argument's namespace (cvf) in addition to caf.
+namespace cvf
 {
 
-inline QVariant pdmToVariant( const cvf::Mat3d& value )
+inline QVariant pdmToVariant( const Mat3d& value )
 {
     QString     str;
     QTextStream textStream( &str );
@@ -56,12 +58,17 @@ inline QVariant pdmToVariant( const cvf::Mat3d& value )
     return QVariant( str );
 }
 
-inline void pdmFromVariant( const QVariant& v, cvf::Mat3d& out )
+inline void pdmFromVariant( const QVariant& v, Mat3d& out )
 {
     QString     str = v.toString();
     QTextStream textStream( &str );
     textStream >> out;
 }
+
+} // end namespace cvf
+
+namespace caf
+{
 
 template <>
 struct PdmVariantEqualImpl<cvf::Mat3d>

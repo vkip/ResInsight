@@ -177,7 +177,7 @@ void RicTextAnnotation3dEditor::updatePoint( caf::PdmUiFieldHandle* uiField, con
 
     cvf::Vec3d domainPos   = dispXf->transformToDomainCoord( newPos );
     domainPos.z()          = -domainPos.z();
-    QVariant originVariant = caf::pdmToVariant( domainPos );
+    QVariant originVariant = caf::toVariant( domainPos );
 
     caf::PdmUiCommandSystemProxy::instance()->setUiValueToField( uiField, originVariant );
 }
