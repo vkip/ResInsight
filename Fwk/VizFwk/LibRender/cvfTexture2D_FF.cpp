@@ -133,11 +133,11 @@ void Texture2D_FF::setMagFilter(Filter magFilter)
 //--------------------------------------------------------------------------------------------------
 bool Texture2D_FF::setupTexture(OpenGLContext* oglContext)
 {
-    CVF_ASSERT(oglContext);
+    CVF_CALLSITE_OPENGL(oglContext);
     CVF_ASSERT(OglRc::safeOglId(m_oglRcTexture.p()) == 0);
 
     CVF_CLEAR_OGL_ERROR(oglContext);
-    
+
     m_oglRcTexture = oglContext->resourceManager()->createOglRcTexture(oglContext);
     bind(oglContext);
     CVF_CHECK_OGL(oglContext);
@@ -146,9 +146,8 @@ bool Texture2D_FF::setupTexture(OpenGLContext* oglContext)
     GLsizei width = static_cast<GLsizei>(m_image->width());
     GLsizei height = static_cast<GLsizei>(m_image->height());
     CVF_ASSERT(height > 0 && width > 0);
-    //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_image->ptr());
-    // Note: gluBuild2DMipmaps will scale the image to the closest power of 2 dimension, which is required by the software renderer
-    gluBuild2DMipmaps(GL_TEXTURE_2D, 4, width, height, GL_RGBA, GL_UNSIGNED_BYTE, m_image->ptr());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, m_image->ptr());
+    cvfGL->glGenerateMipmap(GL_TEXTURE_2D);
 
     if (CVF_TEST_AND_REPORT_OPENGL_ERROR(oglContext, "Setup texture"))
     {
@@ -163,20 +162,22 @@ bool Texture2D_FF::setupTexture(OpenGLContext* oglContext)
 //--------------------------------------------------------------------------------------------------
 /// 
 //--------------------------------------------------------------------------------------------------
-void Texture2D_FF::bind(OpenGLContext* /*oglContext*/) const
+void Texture2D_FF::bind(OpenGLContext* oglContext) const
 {
+    CVF_CALLSITE_OPENGL(oglContext);
     CVF_ASSERT(OglRc::safeOglId(m_oglRcTexture.p()) != 0);
-    glBindTexture(GL_TEXTURE_2D, m_oglRcTexture->oglId());    
+    cvfGL->glBindTexture(GL_TEXTURE_2D, m_oglRcTexture->oglId());
 }
 
 
 //--------------------------------------------------------------------------------------------------
 /// 
 //--------------------------------------------------------------------------------------------------
-bool Texture2D_FF::isBound(OpenGLContext* /*oglContext*/) const
+bool Texture2D_FF::isBound(OpenGLContext* oglContext) const
 {
+    CVF_CALLSITE_OPENGL(oglContext);
     GLint currentTextureBinding = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTextureBinding);
+    cvfGL->glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTextureBinding);
 
     if (currentTextureBinding != 0)
     {
@@ -195,7 +196,7 @@ bool Texture2D_FF::isBound(OpenGLContext* /*oglContext*/) const
 //--------------------------------------------------------------------------------------------------
 void Texture2D_FF::setupTextureParams(OpenGLContext* oglContext) const
 {
-    CVF_ASSERT(oglContext);
+    CVF_CALLSITE_OPENGL(oglContext);
     CVF_ASSERT(isBound(oglContext));
 
     cvfGLint oglWrap = GL_REPEAT;
@@ -208,10 +209,10 @@ void Texture2D_FF::setupTextureParams(OpenGLContext* oglContext) const
     cvfGLint oglMinFilter = filterTypeOpenGL(m_minFilter);
     cvfGLint oglMagFilter = filterTypeOpenGL(m_magFilter);
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, oglWrap);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, oglWrap);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, oglMinFilter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, oglMagFilter);
+    cvfGL->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, oglWrap);
+    cvfGL->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, oglWrap);
+    cvfGL->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, oglMinFilter);
+    cvfGL->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, oglMagFilter);
 
     CVF_CHECK_OGL(oglContext);
 }
