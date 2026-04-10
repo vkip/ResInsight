@@ -157,10 +157,7 @@ TEST( PdmFieldSerialization, ValueList )
     caf::PdmScriptIOMessages messages;
     bool                     stringsAreQuoted = true;
 
-    caf::PdmFieldScriptingCapabilityIOHandler<std::vector<float>>::readFromField( floatValues,
-                                                                                  stream,
-                                                                                  &messages,
-                                                                                  stringsAreQuoted );
+    caf::PdmFieldScriptingCapabilityIOHandler<std::vector<float>>::readFromField( floatValues, stream, stringsAreQuoted );
 
     const QString expected = "[1.5, 0.0001, 1.77e+10]";
     EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
@@ -234,7 +231,6 @@ TEST( PdmFieldSerialization, OptionalValues )
 
         caf::PdmFieldScriptingCapabilityIOHandler<std::optional<QString>>::readFromField( optionalString,
                                                                                           stream,
-                                                                                          &messages,
                                                                                           stringsAreQuoted );
 
         const QString expected = "";
@@ -261,7 +257,6 @@ TEST( PdmFieldSerialization, OptionalValues )
 
         caf::PdmFieldScriptingCapabilityIOHandler<std::optional<QString>>::readFromField( optionalString,
                                                                                           stream,
-                                                                                          &messages,
                                                                                           stringsAreQuoted );
 
         const QString expected = "\"Test string with spaces\"";
@@ -286,7 +281,7 @@ TEST( PdmFieldSerialization, OptionalValues )
 
         caf::PdmScriptIOMessages messages;
 
-        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<float>>::readFromField( optionalString, stream, &messages );
+        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<float>>::readFromField( optionalString, stream );
 
         const QString expected = "23.45";
         EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
@@ -308,7 +303,7 @@ TEST( PdmFieldSerialization, OptionalValues )
 
         caf::PdmScriptIOMessages messages;
 
-        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<double>>::readFromField( optionalString, stream, &messages );
+        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<double>>::readFromField( optionalString, stream );
 
         const QString expected = "2.345000000000000e+01";
         EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
@@ -327,7 +322,7 @@ TEST( PdmFieldSerialization, OptionalValues )
         QString                  text;
         QTextStream              stream( &text );
         caf::PdmScriptIOMessages messages;
-        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<bool>>::readFromField( optionalString, stream, &messages );
+        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<bool>>::readFromField( optionalString, stream );
 
         const QString expected = "true";
         EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
@@ -345,7 +340,7 @@ TEST( PdmFieldSerialization, OptionalValues )
         QString                  text;
         QTextStream              stream( &text );
         caf::PdmScriptIOMessages messages;
-        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<int>>::readFromField( optionalString, stream, &messages );
+        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<int>>::readFromField( optionalString, stream );
 
         const QString expected = "2345";
         EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
@@ -362,7 +357,7 @@ TEST( PdmFieldSerialization, OptionalValues )
         QString                  text;
         QTextStream              stream( &text );
         caf::PdmScriptIOMessages messages;
-        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<int>>::readFromField( optionalInt, stream, &messages );
+        caf::PdmFieldScriptingCapabilityIOHandler<std::optional<int>>::readFromField( optionalInt, stream );
 
         const QString expected = "";
         EXPECT_STREQ( expected.toStdString().c_str(), text.toStdString().c_str() );
