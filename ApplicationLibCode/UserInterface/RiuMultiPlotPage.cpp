@@ -364,7 +364,7 @@ void RiuMultiPlotPage::updateSubTitles()
 {
     for ( int i = 0; i < m_plotWidgets.size(); ++i )
     {
-        if ( m_plotWidgets[i]->isChecked() )
+        if ( m_plotWidgets[i] && m_plotWidgets[i]->isChecked() )
         {
             m_subTitles[i]->setText( m_plotWidgets[i]->plotTitle() );
         }
@@ -435,6 +435,11 @@ void RiuMultiPlotPage::contextMenuEvent( QContextMenuEvent* event )
     menuBuilder << "RicShowPlotDataFeature";
     menuBuilder << "RicShowContributingWellsFromPlotFeature";
     menuBuilder << "RicNewDefaultSummaryPlotFeature";
+
+    if ( auto* pdmObject = dynamic_cast<caf::PdmUiObjectHandle*>( ownerPlotDefinition() ) )
+    {
+        pdmObject->appendMenuItems( menuBuilder );
+    }
 
     menuBuilder.appendToMenu( &menu );
 
@@ -980,7 +985,7 @@ QList<QPointer<RiuQwtPlotLegend>> RiuMultiPlotPage::legendsForVisiblePlots() con
     QList<QPointer<RiuQwtPlotLegend>> legends;
     for ( int i = 0; i < m_plotWidgets.size(); ++i )
     {
-        if ( m_plotWidgets[i]->isChecked() )
+        if ( m_plotWidgets[i] && m_plotWidgets[i]->isChecked() )
         {
             legends.push_back( m_legends[i] );
         }
@@ -996,7 +1001,7 @@ QList<QPointer<RiuDraggableOverlayFrame>> RiuMultiPlotPage::legendFramesForVisib
     QList<QPointer<RiuDraggableOverlayFrame>> legendFrames;
     for ( int i = 0; i < m_plotWidgets.size(); ++i )
     {
-        if ( m_plotWidgets[i]->isChecked() )
+        if ( m_plotWidgets[i] && m_plotWidgets[i]->isChecked() )
         {
             legendFrames.push_back( m_legendFrames[i] );
         }
@@ -1012,7 +1017,7 @@ QList<QPointer<QLabel>> RiuMultiPlotPage::subTitlesForVisiblePlots() const
     QList<QPointer<QLabel>> subTitles;
     for ( int i = 0; i < m_plotWidgets.size(); ++i )
     {
-        if ( m_plotWidgets[i]->isChecked() )
+        if ( m_plotWidgets[i] && m_plotWidgets[i]->isChecked() )
         {
             m_subTitles[i]->setText( m_plotWidgets[i]->plotTitle() );
             subTitles.push_back( m_subTitles[i] );
