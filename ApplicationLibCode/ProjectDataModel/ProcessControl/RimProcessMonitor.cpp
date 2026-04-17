@@ -20,13 +20,15 @@
 
 #include "RiaLogging.h"
 
+#include "RimProcessQueue.h"
+
 #include <QProcess>
 #include <QtCore/QtCore>
 
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-RimProcessMonitor::RimProcessMonitor( int processId, bool logStdOutErr /*true*/ )
+RimProcessMonitor::RimProcessMonitor( size_t processId, bool logStdOutErr /*true*/ )
     : QObject( nullptr )
     , m_processId( processId )
     , m_logStdOutErr( logStdOutErr )
@@ -79,20 +81,23 @@ void RimProcessMonitor::error( QProcess::ProcessError error )
 //--------------------------------------------------------------------------------------------------
 void RimProcessMonitor::finished( int exitCode, QProcess::ExitStatus exitStatus )
 {
-    if ( !m_logStdOutErr ) return;
-
-    QString finishStr;
-    switch ( exitStatus )
+    if ( m_logStdOutErr )
     {
-        case QProcess::NormalExit:
-            finishStr = QString( "Normal exit, code %1" ).arg( exitCode );
-            break;
-        case QProcess::CrashExit:
-        default:
-            finishStr = QString( "Crash exit, code %1" ).arg( exitCode );
-            break;
+        QString finishStr;
+        switch ( exitStatus )
+        {
+            case QProcess::NormalExit:
+                finishStr = QString( "Normal exit, code %1" ).arg( exitCode );
+                break;
+            case QProcess::CrashExit:
+            default:
+                finishStr = QString( "Crash exit, code %1" ).arg( exitCode );
+                break;
+        }
+        RiaLogging::debug( addPrefix( finishStr ) );
     }
-    RiaLogging::debug( addPrefix( finishStr ) );
+
+    RimProcessQueue::onProcessFinished( m_processId );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -175,7 +180,7 @@ QStringList RimProcessMonitor::stdErr() const
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-void RimProcessMonitor::setProcessId( int processId )
+void RimProcessMonitor::setProcessId( size_t processId )
 {
     m_processId = processId;
 }

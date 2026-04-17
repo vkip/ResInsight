@@ -1,6 +1,6 @@
 /////////////////////////////////////////////////////////////////////////////////
 //
-//  Copyright (C) 2025 Equinor ASA
+//  Copyright (C) 2026    Equinor ASA
 //
 //  ResInsight is free software: you can redistribute it and/or modify
 //  it under the terms of the GNU General Public License as published by
@@ -15,28 +15,34 @@
 //  for more details.
 //
 /////////////////////////////////////////////////////////////////////////////////
-
 #pragma once
 
-#include "RimProcessMonitor.h"
+#include <list>
 
-#include "cafPdmPointer.h"
+#include <QMutex>
 
-class RimGenericJob;
+class RimProcess;
 
-class RimJobMonitor : public RimProcessMonitor
+class RimProcessQueue
 {
-    Q_OBJECT
-
 public:
-    RimJobMonitor( RimGenericJob* job );
-    ~RimJobMonitor() override;
+    static size_t queueProcess( RimProcess* process );
+    static void   stopProcess( size_t processId );
+    static void   onProcessFinished( size_t processId );
 
 protected:
-    void readyReadStandardOutput() override;
-    void finished( int exitCode, QProcess::ExitStatus exitStatus ) override;
-    void started() override;
+    RimProcessQueue();
+    static RimProcessQueue* instance();
+
+    size_t internalQueueProcess( RimProcess* process );
+    void   internalOnProcessFinished( size_t processId );
+    void   internalStopProcess( size_t processId );
 
 private:
-    caf::PdmPointer<RimGenericJob> m_job;
+    void launchNextProcessIfPossible();
+
+    std::list<RimProcess*> m_waitingProcesses;
+    std::list<RimProcess*> m_runningProcesses;
+
+    QMutex m_mutex;
 };

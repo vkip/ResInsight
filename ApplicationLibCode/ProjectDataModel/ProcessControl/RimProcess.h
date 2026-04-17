@@ -21,6 +21,7 @@
 #include "cafPdmField.h"
 #include "cafPdmObject.h"
 
+#include <QPointer>
 #include <QString>
 #include <QStringList>
 
@@ -51,7 +52,7 @@ public:
 
     QString     command() const;
     QStringList parameters() const;
-    int         ID() const;
+    size_t      ID() const;
 
     // blocking run
     bool execute( bool enableStdOut = true, bool enableStdErr = true );
@@ -60,6 +61,7 @@ public:
     bool start( bool enableStdOut = true, bool enableStdErr = true );
     void cleanUpAfterRun();
     void terminate();
+    void notifyErrorFinish();
 
     QStringList stdErr() const;
     QStringList stdOut() const;
@@ -77,13 +79,13 @@ private:
     caf::PdmField<QString>       m_command;
     QStringList                  m_arguments;
     caf::PdmField<QString>       m_description;
-    caf::PdmField<int>           m_id;
+    caf::PdmField<size_t>        m_id;
     caf::PdmField<caf::FilePath> m_workDir;
 
     std::vector<std::pair<QString, QString>> m_environmentVariables;
 
-    static int         m_nextProcessId;
+    static size_t      m_nextProcessId;
     RimProcessMonitor* m_monitor;
     bool               m_enableLogging;
-    QProcess*          m_qProcess;
+    QPointer<QProcess> m_qProcess;
 };

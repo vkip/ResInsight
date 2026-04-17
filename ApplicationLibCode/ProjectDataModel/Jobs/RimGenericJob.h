@@ -38,14 +38,26 @@ class RimGenericJob : public RimNamedObject
     CAF_PDM_HEADER_INIT;
 
 public:
+    enum JobState
+    {
+        Idle, // default, nothing is happening
+        Queued, // waiting for available resources to run
+        Running, // job is running
+        Completed, // job completed without errors
+        Failed // job completed with errors
+    };
+
     RimGenericJob();
     ~RimGenericJob() override;
 
     bool execute();
     bool setFinished( bool runOk );
+    void setStarted();
 
     bool isRunning() const;
     bool stop();
+
+    JobState state() const;
 
     double            percentageDone() const;
     const QStringList jobLog() const;
@@ -72,7 +84,6 @@ protected:
     int    m_errorsDetected;
 
 private:
-    bool                        m_lastRunFailed;
-    bool                        m_isRunning;
+    JobState                    m_jobState;
     caf::PdmPointer<RimProcess> m_process;
 };
