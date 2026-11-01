@@ -31,6 +31,7 @@
 #include "RigCaseCellResultsData.h"
 #include "RigCell.h"
 #include "RigEclipseCaseData.h"
+#include "RigLocalGrid.h"
 #include "RigMainGrid.h"
 #include "RigReservoirGridTools.h"
 
@@ -170,6 +171,14 @@ RigGridBase* RicCreateTemporaryLgrFeature::createLgrForGrid( const LgrInfo& lgrI
         mainGrid->nodes().resize( nodeStartIndex + lgrCellCount * 8, cvf::Vec3d( 0, 0, 0 ) );
     }
 
+    if ( lgrInfo.gradedRefinement )
+    {
+        localGrid->setRefinement( lgrInfo.gradedRefinement );
+        fillGradedLgrCells( lgrInfo, mainGrid, localGrid, cellStartIndex, nodeStartIndex );
+        localGrid->setParentGrid( mainGrid );
+        return localGrid;
+    }
+
     auto   refinement         = lgrInfo.refinement;
     size_t gridLocalCellIndex = 0;
 
@@ -222,6 +231,70 @@ RigGridBase* RicCreateTemporaryLgrFeature::createLgrForGrid( const LgrInfo& lgrI
     localGrid->setParentGrid( mainGrid );
 
     return localGrid;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// Cells and nodes of an LGR whose host cells are subdivided by the cumulative fractions of the graded refinement
+//--------------------------------------------------------------------------------------------------
+void RicCreateTemporaryLgrFeature::fillGradedLgrCells( const LgrInfo& lgrInfo,
+                                                       RigMainGrid*   mainGrid,
+                                                       RigLocalGrid*  localGrid,
+                                                       size_t         cellStartIndex,
+                                                       size_t         nodeStartIndex )
+{
+    const RigRefinement& refinement = *lgrInfo.gradedRefinement;
+    const cvf::Vec3st    lgrCounts  = lgrInfo.lgrCellCounts();
+
+    const size_t boxCountI = lgrInfo.mainGridEndCell.i() - lgrInfo.mainGridStartCell.i() + 1;
+    const size_t boxCountJ = lgrInfo.mainGridEndCell.j() - lgrInfo.mainGridStartCell.j() + 1;
+    const size_t boxCountK = lgrInfo.mainGridEndCell.k() - lgrInfo.mainGridStartCell.k() + 1;
+
+    for ( size_t boxK = 0; boxK < boxCountK; boxK++ )
+    {
+        const auto& fractionsK = refinement.cumulativeFractions( RigRefinement::DimK, boxK );
+        for ( size_t boxJ = 0; boxJ < boxCountJ; boxJ++ )
+        {
+            const auto& fractionsJ = refinement.cumulativeFractions( RigRefinement::DimJ, boxJ );
+            for ( size_t boxI = 0; boxI < boxCountI; boxI++ )
+            {
+                const auto& fractionsI = refinement.cumulativeFractions( RigRefinement::DimI, boxI );
+
+                size_t mainCellIndex = mainGrid->cellIndexFromIJK( lgrInfo.mainGridStartCell.i() + boxI,
+                                                                   lgrInfo.mainGridStartCell.j() + boxJ,
+                                                                   lgrInfo.mainGridStartCell.k() + boxK );
+                mainGrid->cell( mainCellIndex ).setSubGrid( localGrid );
+
+                const std::vector<cvf::Vec3d> subCellCoords =
+                    RiaCellDividingTools::createHexCornerCoords( mainGrid->cellCornerVertices( mainCellIndex ), fractionsI, fractionsJ, fractionsK );
+
+                for ( size_t subK = 0; subK < fractionsK.size(); subK++ )
+                {
+                    const size_t lgrK = refinement.cumulativeOffset( RigRefinement::DimK, boxK ) + subK;
+                    for ( size_t subJ = 0; subJ < fractionsJ.size(); subJ++ )
+                    {
+                        const size_t lgrJ = refinement.cumulativeOffset( RigRefinement::DimJ, boxJ ) + subJ;
+                        for ( size_t subI = 0; subI < fractionsI.size(); subI++ )
+                        {
+                            const size_t lgrI               = refinement.cumulativeOffset( RigRefinement::DimI, boxI ) + subI;
+                            const size_t gridLocalCellIndex = lgrI + lgrJ * lgrCounts.i() + lgrK * lgrCounts.i() * lgrCounts.j();
+                            const size_t subIndex = subI + subJ * fractionsI.size() + subK * fractionsI.size() * fractionsJ.size();
+
+                            RigCell& cell = mainGrid->cell( cellStartIndex + gridLocalCellIndex );
+                            cell.setGridLocalCellIndex( gridLocalCellIndex );
+                            cell.setParentCellIndex( mainCellIndex );
+
+                            for ( size_t cIdx = 0; cIdx < 8; ++cIdx )
+                            {
+                                const size_t nodeIndex       = nodeStartIndex + gridLocalCellIndex * 8 + cIdx;
+                                mainGrid->nodes()[nodeIndex] = subCellCoords[subIndex * 8 + cIdx];
+                                cell.cornerIndices()[cIdx]   = nodeIndex;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 //--------------------------------------------------------------------------------------------------

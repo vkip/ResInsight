@@ -1073,6 +1073,97 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createLgrForComplet
     return nullptr;
 }
 
+CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseCase, RimEclipseCase_createLgrForSimulationWell, "createLgrForSimulationWell" );
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RimEclipseCase_createLgrForSimulationWell::RimEclipseCase_createLgrForSimulationWell( caf::PdmObjectHandle* self )
+    : caf::PdmVoidObjectMethod( self )
+{
+    CAF_PDM_InitObject( "Create LGR for Simulation Well",
+                        "",
+                        "",
+                        "Create a temporary local grid refinement around the connections of a simulation well. A previous "
+                        "temporary LGR of the well is replaced; the temporary LGRs of other wells are kept." );
+
+    CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
+    CAF_PDM_InitScriptableField( &m_lgrName,
+                                 "LgrName",
+                                 QString(),
+                                 "LGR Name",
+                                 "",
+                                 "",
+                                 "Name of the LGR, at most eight characters. Default: 'L' followed by the well name" );
+    CAF_PDM_InitScriptableField( &m_timeStep,
+                                 "TimeStep",
+                                 -1,
+                                 "Time Step",
+                                 "",
+                                 "",
+                                 "Zero-based time step of the connections to refine around. -1 uses the connections of all time steps" );
+    CAF_PDM_InitScriptableField( &m_lateralRefinement,
+                                 "LateralRefinement",
+                                 RicWellLgrTools::LateralRefinementEnum( RicWellLgrTools::LateralRefinement::LOGARITHMIC ),
+                                 "Lateral Refinement",
+                                 "",
+                                 "",
+                                 "UNIFORM: refinement_i x refinement_j cells per host cell. LOGARITHMIC: cells of min_cell_size at "
+                                 "the well, growing by growth_factor away from it" );
+    CAF_PDM_InitScriptableField( &m_refinementI, "RefinementI", 3, "Refinement I", "", "", "Uniform lateral refinement in the I direction" );
+    CAF_PDM_InitScriptableField( &m_refinementJ, "RefinementJ", 3, "Refinement J", "", "", "Uniform lateral refinement in the J direction" );
+    CAF_PDM_InitScriptableField( &m_refinementK, "RefinementK", 2, "Refinement K", "", "", "Uniform vertical refinement" );
+    CAF_PDM_InitScriptableField( &m_minCellSize,
+                                 "MinCellSize",
+                                 1.0,
+                                 "Minimum Cell Size",
+                                 "",
+                                 "",
+                                 "Logarithmic refinement: lateral size of the refined cells at the well [m]" );
+    CAF_PDM_InitScriptableField( &m_growthFactor,
+                                 "GrowthFactor",
+                                 1.5,
+                                 "Growth Factor",
+                                 "",
+                                 "",
+                                 "Logarithmic refinement: size ratio of neighbouring refined cells away from the well" );
+    CAF_PDM_InitScriptableField( &m_paddingIJ,
+                                 "LateralPadding",
+                                 2,
+                                 "Lateral Padding",
+                                 "",
+                                 "",
+                                 "Number of host cells around the connections in the I and J directions" );
+    CAF_PDM_InitScriptableField( &m_paddingK, "VerticalPadding", 0, "Vertical Padding", "", "", "Number of host cells above and below the connections" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createLgrForSimulationWell::execute()
+{
+    auto* eclipseCase = self<RimEclipseCase>();
+    if ( !eclipseCase ) return std::unexpected( "No case is available." );
+    if ( m_wellName().isEmpty() ) return std::unexpected( "No well name specified." );
+
+    RicWellLgrTools::Settings settings;
+    settings.lgrName           = m_lgrName();
+    settings.timeStep          = m_timeStep();
+    settings.lateralRefinement = m_lateralRefinement();
+    settings.refinementI       = m_refinementI();
+    settings.refinementJ       = m_refinementJ();
+    settings.refinementK       = m_refinementK();
+    settings.minCellSize       = m_minCellSize();
+    settings.growthFactor      = m_growthFactor();
+    settings.paddingIJ         = m_paddingIJ();
+    settings.paddingK          = m_paddingK();
+
+    auto result = RicWellLgrTools::createTemporaryLgrForSimulationWell( eclipseCase, m_wellName(), settings );
+    if ( !result ) return std::unexpected( result.error() );
+
+    return nullptr;
+}
+
 CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseCase, RimEclipseCase_exportLgrForCompletions, "exportLgrForCompletions" );
 
 //--------------------------------------------------------------------------------------------------

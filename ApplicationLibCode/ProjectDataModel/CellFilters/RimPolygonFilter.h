@@ -76,6 +76,7 @@ public:
     void enableFilter( bool bEnable );
     void enableKFilter( bool bEnable );
     void setPolygon( RimPolygon* polygon );
+    void setPolygonFilterMode( PolygonFilterModeType filterMode, PolygonIncludeType includeType );
 
     bool isFilterEnabled() const override;
     bool isSelected() const;

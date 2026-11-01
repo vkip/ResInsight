@@ -170,6 +170,19 @@ void RimPolygonFilter::setPolygon( RimPolygon* polygon )
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+void RimPolygonFilter::setPolygonFilterMode( PolygonFilterModeType filterMode, PolygonIncludeType includeType )
+{
+    m_polyFilterMode  = filterMode;
+    m_polyIncludeType = includeType;
+
+    // The cells are recomputed on the next update
+    m_cells.clear();
+    filterChanged.send();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 bool RimPolygonFilter::isFilterEnabled() const
 {
     return isActive() && m_enableFiltering;

@@ -23,6 +23,7 @@
 
 #include "CompletionExportCommands/RicExportCompletionDataSettingsUi.h"
 #include "ExportCommands/RicLgrSplitType.h"
+#include "ExportCommands/RicWellLgrTools.h"
 #include "FractureCommands/RicCreateMultipleFracturesFeature.h"
 
 #include "cafAppEnum.h"
@@ -309,6 +310,33 @@ private:
     caf::PdmField<Lgr::SplitTypeEnum>   m_splitType;
 
     QStringList m_wellsIntersectingOtherLgrs;
+};
+
+//==================================================================================================
+/// Create a temporary local grid refinement (LGR) around a simulation well, i.e. a well known from the
+/// simulation results only. The lateral refinement is uniform or graded logarithmically away from the well.
+//==================================================================================================
+class RimEclipseCase_createLgrForSimulationWell : public caf::PdmVoidObjectMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimEclipseCase_createLgrForSimulationWell( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+
+private:
+    caf::PdmField<QString>                                m_wellName;
+    caf::PdmField<QString>                                m_lgrName;
+    caf::PdmField<int>                                    m_timeStep;
+    caf::PdmField<RicWellLgrTools::LateralRefinementEnum> m_lateralRefinement;
+    caf::PdmField<int>                                    m_refinementI;
+    caf::PdmField<int>                                    m_refinementJ;
+    caf::PdmField<int>                                    m_refinementK;
+    caf::PdmField<double>                                 m_minCellSize;
+    caf::PdmField<double>                                 m_growthFactor;
+    caf::PdmField<int>                                    m_paddingIJ;
+    caf::PdmField<int>                                    m_paddingK;
 };
 
 //==================================================================================================

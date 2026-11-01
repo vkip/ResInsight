@@ -18,6 +18,8 @@
 
 #include "RigLocalGrid.h"
 
+#include "RigRefinement.h"
+
 RigLocalGrid::RigLocalGrid( RigMainGrid* mainGrid )
     : RigGridBase( mainGrid )
     , m_parentGrid( nullptr )
@@ -93,4 +95,20 @@ void RigLocalGrid::setAssociatedWellPathName( const std::string& wellPathName )
 const std::string& RigLocalGrid::associatedWellPathName() const
 {
     return m_associatedWellPathName;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RigLocalGrid::setRefinement( std::shared_ptr<const RigRefinement> refinement )
+{
+    m_refinement = std::move( refinement );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::shared_ptr<const RigRefinement> RigLocalGrid::refinement() const
+{
+    return m_refinement;
 }

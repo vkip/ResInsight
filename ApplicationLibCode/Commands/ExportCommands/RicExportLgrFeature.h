@@ -20,6 +20,7 @@
 
 #include "RigCompletionData.h"
 #include "RigCompletionDataGridCell.h"
+#include "RigRefinement.h"
 
 #include "RicExportLgrUi.h"
 
@@ -66,6 +67,13 @@ public:
 
     cvf::Vec3st lgrCellCounts() const
     {
+        if ( gradedRefinement )
+        {
+            return { gradedRefinement->totalRefinedCount( RigRefinement::DimI ),
+                     gradedRefinement->totalRefinedCount( RigRefinement::DimJ ),
+                     gradedRefinement->totalRefinedCount( RigRefinement::DimK ) };
+        }
+
         auto lgrI = ( mainGridEndCell.i() - mainGridStartCell.i() + 1 ) * refinement.i();
         auto lgrJ = ( mainGridEndCell.j() - mainGridStartCell.j() + 1 ) * refinement.j();
         auto lgrK = ( mainGridEndCell.k() - mainGridStartCell.k() + 1 ) * refinement.k();
@@ -91,6 +99,9 @@ public:
 
     caf::VecIjk0 mainGridStartCell;
     caf::VecIjk0 mainGridEndCell;
+
+    // Per-cell subdivision relative to the LGR box (NXFIN/HXFIN etc.). Overrides the uniform refinement when set.
+    std::shared_ptr<const RigRefinement> gradedRefinement;
 };
 
 //==================================================================================================

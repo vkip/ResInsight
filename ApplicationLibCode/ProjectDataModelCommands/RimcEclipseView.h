@@ -106,3 +106,29 @@ private:
     caf::PdmField<int>                                                            m_hiddenActiveCellsValue;
     caf::PdmField<int>                                                            m_inactiveCellsValue;
 };
+
+//==================================================================================================
+/// Create a sector model around a simulation well for an OPM Flow run with USEFLUX: a polygon filter
+/// around the well, the sector as a FLUXNUM region, the boundary data from make_flux and a copy of the
+/// deck that runs on the sector. A temporary LGR around the well is carried into the sector deck.
+//==================================================================================================
+class RimEclipseView_createSectorModelForWell : public caf::PdmObjectMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimEclipseView_createSectorModelForWell( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+
+private:
+    caf::PdmField<QString> m_wellName;
+    caf::PdmField<QString> m_exportFolder;
+    caf::PdmField<QString> m_deckFile;
+    caf::PdmField<QString> m_makeFluxExecutable;
+    caf::PdmField<int>     m_marginCells;
+    caf::PdmField<int>     m_wellPaddingCells;
+    caf::PdmField<int>     m_lgrPaddingCells;
+    caf::PdmField<bool>    m_runMakeFlux;
+};

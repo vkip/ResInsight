@@ -1,0 +1,129 @@
+-- Small parent model for the ResInsight sector model tests (LGRs around simulation wells, make_flux).
+-- Three producers on field group control and one water injector.
+RUNSPEC
+TITLE
+  ResInsight sector model test
+DIMENS
+  15 15 3 /
+OIL
+WATER
+GAS
+DISGAS
+METRIC
+START
+  1 JAN 2020 /
+WELLDIMS
+  10 20 3 10 /
+TABDIMS
+  1 1 20 20 /
+EQLDIMS
+  1 /
+UNIFOUT
+
+GRID
+INIT
+DX
+  675*100 /
+DY
+  675*100 /
+DZ
+  225*4 225*6 225*5 /
+TOPS
+  225*2000 /
+PORO
+  225*0.25 225*0.20 225*0.28 /
+PERMX
+  225*300 225*80 225*600 /
+COPY
+  PERMX PERMY /
+  PERMX PERMZ /
+/
+MULTIPLY
+  PERMZ 0.1 /
+/
+
+PROPS
+SWOF
+  0.20 0.00 1.00 0
+  0.30 0.02 0.70 0
+  0.40 0.06 0.45 0
+  0.50 0.13 0.25 0
+  0.60 0.24 0.11 0
+  0.70 0.40 0.03 0
+  0.80 0.60 0.00 0 /
+SGOF
+  0.00 0.00 1.00 0
+  0.10 0.02 0.70 0
+  0.20 0.08 0.40 0
+  0.30 0.20 0.18 0
+  0.40 0.40 0.05 0
+  0.60 0.80 0.00 0 /
+PVTW
+  250 1.02 4.5E-5 0.4 0 /
+PVDG
+  100 0.0100 0.015
+  200 0.0055 0.020
+  300 0.0040 0.025 /
+PVTO
+  80  150 1.25 0.9
+      300 1.22 1.0 /
+  120 250 1.32 0.8
+      350 1.30 0.9 /
+/
+DENSITY
+  850 1020 0.9 /
+ROCK
+  250 5E-5 /
+
+REGIONS
+FIPNUM
+  675*1 /
+
+SOLUTION
+EQUIL
+  2010 240 2040 0 1900 0 1 0 0 /
+RSVD
+  1900 100
+  2100 100 /
+RPTRST
+  BASIC=2 /
+
+SUMMARY
+FLUXALL
+FOPR
+FOPT
+FWPR
+FWIR
+FPR
+WBHP
+/
+WOPR
+/
+WWCT
+/
+
+SCHEDULE
+WELSPECS
+  'INJ' 'G1'  3  3 1* 'WATER' /
+  'P1'  'G1' 12  3 1* 'OIL' /
+  'P2'  'G1'  4 11 1* 'OIL' /
+  'P3'  'G1' 11 11 1* 'OIL' /
+/
+COMPDAT
+  'INJ'  3  3 2 3 'OPEN' 2* 0.2 /
+  'P1'  12  3 1 2 'OPEN' 2* 0.2 /
+  'P2'   4 11 1 2 'OPEN' 2* 0.2 /
+  'P3'  11 11 1 3 'OPEN' 2* 0.2 /
+/
+WCONPROD
+  'P*' 'OPEN' 'GRUP' 4* 100 /
+/
+GCONPROD
+  'FIELD' 'ORAT' 600 /
+/
+WCONINJE
+  'INJ' 'WATER' 'OPEN' 'RATE' 800 1* 400 /
+/
+TSTEP
+  3*30 /
+END

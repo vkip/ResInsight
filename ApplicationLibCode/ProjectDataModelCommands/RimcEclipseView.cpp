@@ -19,6 +19,7 @@
 #include "RimcEclipseView.h"
 
 #include "ExportCommands/RicEclipseCellResultToFileImpl.h"
+#include "ExportCommands/RicFluxSectorModelTools.h"
 #include "ExportCommands/RicSaveEclipseInputVisibleCellsFeature.h"
 
 #include "RiaViewRedrawScheduler.h"
@@ -33,6 +34,8 @@
 #include "RimFaultDistanceCollection.h"
 #include "RimFaultInView.h"
 #include "RimFaultInViewCollection.h"
+
+#include "RimcSectorModelResult.h"
 
 #include "cafPdmAbstractFieldScriptingCapability.h"
 #include "cafPdmFieldScriptingCapability.h"
@@ -302,4 +305,100 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_exportVisibleCells:
     }
 
     return nullptr;
+}
+
+CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseView, RimEclipseView_createSectorModelForWell, "createSectorModelForWell" );
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RimEclipseView_createSectorModelForWell::RimEclipseView_createSectorModelForWell( caf::PdmObjectHandle* self )
+    : caf::PdmObjectMethod( self, PdmObjectMethod::NullPointerType::NULL_IS_INVALID, PdmObjectMethod::ResultType::PERSISTENT_FALSE )
+{
+    CAF_PDM_InitObject( "Create Sector Model for Well",
+                        "",
+                        "",
+                        "Create a sector model around a simulation well for an OPM Flow run with USEFLUX. The sector is "
+                        "shown as a polygon filter in the view and exported as a FLUXNUM region, make_flux builds its "
+                        "boundary data, and the deck is copied with USEFLUX, FLUXREG and the region added. A temporary "
+                        "LGR around the well is added to the sector deck, with the well moved into it." );
+
+    CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
+    CAF_PDM_InitScriptableField( &m_exportFolder,
+                                 "ExportFolder",
+                                 QString(),
+                                 "Export Folder",
+                                 "",
+                                 "",
+                                 "Folder for the sector files. Default: 'sector_<well>' next to the grid file" );
+    CAF_PDM_InitScriptableField( &m_deckFile,
+                                 "DeckFile",
+                                 QString(),
+                                 "Deck File",
+                                 "",
+                                 "",
+                                 "Deck of the case. Default: the DATA file next to the grid file; if there is none, the user is asked" );
+    CAF_PDM_InitScriptableField( &m_makeFluxExecutable,
+                                 "MakeFluxExecutable",
+                                 QString(),
+                                 "make_flux Executable",
+                                 "",
+                                 "",
+                                 "Path to make_flux. Default: make_flux in PATH" );
+    CAF_PDM_InitScriptableField( &m_marginCells, "MarginCells", 3, "Margin Cells", "", "", "Main grid cells around the well connections, laterally" );
+    CAF_PDM_InitScriptableField( &m_wellPaddingCells,
+                                 "WellPaddingCells",
+                                 2,
+                                 "Well Padding Cells",
+                                 "",
+                                 "",
+                                 "Cells around another well that the sector boundary would cut, when the sector is enlarged to hold it" );
+    CAF_PDM_InitScriptableField( &m_lgrPaddingCells,
+                                 "LgrPaddingCells",
+                                 2,
+                                 "LGR Padding Cells",
+                                 "",
+                                 "",
+                                 "Cells between the LGR around the well and the sector boundary" );
+    CAF_PDM_InitScriptableField( &m_runMakeFlux, "RunMakeFlux", true, "Run make_flux", "", "", "Build the FLUX file with make_flux" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createSectorModelForWell::execute()
+{
+    auto* view = self<RimEclipseView>();
+
+    RicFluxSectorModelTools::Settings settings;
+    settings.wellName           = m_wellName();
+    settings.exportFolder       = m_exportFolder();
+    settings.deckFile           = m_deckFile();
+    settings.makeFluxExecutable = m_makeFluxExecutable();
+    settings.marginCells        = m_marginCells();
+    settings.wellPaddingCells   = m_wellPaddingCells();
+    settings.lgrPaddingCells    = m_lgrPaddingCells();
+    settings.runMakeFlux        = m_runMakeFlux();
+
+    auto result = RicFluxSectorModelTools::createSectorModel( view, settings );
+    if ( !result ) return std::unexpected( result.error() );
+
+    auto* output              = new RimcSectorModelResult();
+    output->m_deckFile        = result->deckFile;
+    output->m_fluxFile        = result->fluxFile;
+    output->m_fluxnumFile     = result->fluxnumFile;
+    output->m_lgrName         = result->lgrName;
+    output->m_cellCount       = result->sectorCellCount;
+    output->m_activeCellCount = result->activeSectorCellCount;
+    output->m_wells           = std::vector<QString>( result->wellsInSector.begin(), result->wellsInSector.end() );
+    output->m_warnings        = std::vector<QString>( result->warnings.begin(), result->warnings.end() );
+    return output;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RimEclipseView_createSectorModelForWell::classKeywordReturnedType() const
+{
+    return RimcSectorModelResult::classKeywordStatic();
 }

@@ -19,6 +19,10 @@
 #pragma once
 #include "RigGridBase.h"
 
+#include <memory>
+
+class RigRefinement;
+
 class RigLocalGrid : public RigGridBase
 {
 public:
@@ -40,9 +44,15 @@ public:
     void               setAssociatedWellPathName( const std::string& wellPathName );
     const std::string& associatedWellPathName() const override;
 
+    // Subdivision of the host cells, relative to the LGR box. Set for temporary LGRs created by ResInsight.
+    void                                 setRefinement( std::shared_ptr<const RigRefinement> refinement );
+    std::shared_ptr<const RigRefinement> refinement() const;
+
 private:
     RigGridBase* m_parentGrid;
     bool         m_isTempGrid;
     bool         m_isReconstructedGrid;
     std::string  m_associatedWellPathName;
+
+    std::shared_ptr<const RigRefinement> m_refinement;
 };

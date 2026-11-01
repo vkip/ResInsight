@@ -33,6 +33,7 @@ set(SOURCE_GROUP_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/RimcIdenticalGridCaseGroup.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcPressureTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcEclipseView.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RimcSectorModelResult.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcFishbonesCollection.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcPolygonCollection.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcDataFilterCollection.cpp

@@ -34,6 +34,7 @@ class RimEclipseCase;
 class RimWellPath;
 class RigGridBase;
 class RigEclipseCaseData;
+class RigLocalGrid;
 
 //==================================================================================================
 ///
@@ -59,4 +60,6 @@ private:
     void setupActionLook( QAction* actionToSetup ) override;
 
     static RigGridBase* createLgrForGrid( const LgrInfo& lgrInfo, RigMainGrid* mainGrid );
+    static void
+        fillGradedLgrCells( const LgrInfo& lgrInfo, RigMainGrid* mainGrid, RigLocalGrid* localGrid, size_t cellStartIndex, size_t nodeStartIndex );
 };

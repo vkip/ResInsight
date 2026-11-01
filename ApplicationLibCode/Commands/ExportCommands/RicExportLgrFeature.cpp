@@ -18,6 +18,8 @@
 
 #include "RicExportLgrFeature.h"
 
+#include "RicWellLgrTools.h"
+
 #include "RiaApplication.h"
 #include "RiaLogging.h"
 #include "RiuMessageDialog.h"
@@ -28,6 +30,7 @@
 #include "RifTextDataTableFormatter.h"
 
 #include "RigCaseCellResultsData.h"
+#include "RigLocalGrid.h"
 #include "RigMainGrid.h"
 #include "RigResultAccessor.h"
 #include "RigResultAccessorFactory.h"
@@ -380,6 +383,11 @@ void RicExportLgrFeature::writeLgrs( QTextStream& stream, const std::vector<LgrI
             formatter.add( lgrInfo.lgrCellCounts().k() );
             formatter.rowCompleted();
             formatter.tableCompleted( "", false );
+        }
+
+        if ( lgrInfo.gradedRefinement )
+        {
+            stream << RicWellLgrTools::gradingKeywords( *lgrInfo.gradedRefinement );
         }
 
         {
@@ -919,6 +927,10 @@ std::map<QString, std::vector<LgrInfo>> RicExportLgrFeature::createLgrInfoListFo
                                     refinement,
                                     mainGridBoundingBox.first,
                                     mainGridBoundingBox.second ) );
+        if ( auto localGrid = dynamic_cast<const RigLocalGrid*>( grid ) )
+        {
+            item.back().gradedRefinement = localGrid->refinement();
+        }
     }
 
     return lgrInfosPerWell;
