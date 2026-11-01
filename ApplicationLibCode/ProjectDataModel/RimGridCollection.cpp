@@ -26,6 +26,8 @@
 #include "RigMainGrid.h"
 #include "RigNestedHybridGridReconstructor.h"
 
+#include "cafPdmFieldScriptingCapability.h"
+#include "cafPdmObjectScriptingCapability.h"
 #include "cafPdmUiTreeOrdering.h"
 
 #include <set>
@@ -274,9 +276,9 @@ CAF_PDM_SOURCE_INIT( RimGridCollection, "GridCollection" );
 //--------------------------------------------------------------------------------------------------
 RimGridCollection::RimGridCollection()
 {
-    CAF_PDM_InitObject( "Grids", ":/draw_style_meshlines_24x24.png" );
+    CAF_PDM_InitScriptableObject( "Grids", ":/draw_style_meshlines_24x24.png", "", "The grid cells of a 3D view" );
 
-    CAF_PDM_InitField( &m_isActive, "IsActive", true, "Show Grid Cells" );
+    CAF_PDM_InitScriptableFieldWithScriptKeyword( &m_isActive, "IsActive", "ShowGridCells", true, "Show Grid Cells" );
     m_isActive.uiCapability()->setUiHidden( true );
 
     CAF_PDM_InitFieldNoDefault( &m_mainGrid, "MainGrid", "Main Grid" );

@@ -81,3 +81,28 @@ def test_export_contour_map_to_text_requires_contour_map(
             )
         with pytest.raises(rips.RipsError):
             view.export_contour_map_to_text()
+
+
+def test_show_grid_cells(rips_instance, initialize_test):
+    """Test toggling grid cell visibility through the view's GridCollection"""
+    case_path = dataroot.PATH + "/TEST10K_FLT_LGR_NNC/TEST10K_FLT_LGR_NNC.EGRID"
+    case = rips_instance.project.load_case(path=case_path)
+    view = case.views()[0] if case.views() else case.create_view()
+
+    grid_collections = view.descendants(rips.GridCollection)
+    assert len(grid_collections) == 1
+    grids = grid_collections[0]
+    assert grids.show_grid_cells is True
+    # Cell visibility is only computed when there is a 3D viewer (not in console mode)
+    has_viewer = sum(view.visible_cells(time_step=0)) > 0
+
+    grids.show_grid_cells = False
+    grids.update()
+    assert view.descendants(rips.GridCollection)[0].show_grid_cells is False
+    assert sum(view.visible_cells(time_step=0)) == 0
+
+    grids.show_grid_cells = True
+    grids.update()
+    assert view.descendants(rips.GridCollection)[0].show_grid_cells is True
+    if has_viewer:
+        assert sum(view.visible_cells(time_step=0)) > 0
