@@ -113,7 +113,7 @@ CellSet boxCells( const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax )
 //--------------------------------------------------------------------------------------------------
 /// Host cells of the LGRs that are not part of the grid of the case, by name
 //--------------------------------------------------------------------------------------------------
-std::map<QString, CellSet> lgrHostCells( const RigMainGrid& mainGrid, const QString& excludedLgr )
+std::map<QString, CellSet> lgrHostCells( const RigMainGrid& mainGrid, const QStringList& excludedLgrs )
 {
     std::map<QString, CellSet> lgrCells;
     for ( size_t c = 0; c < mainGrid.cellCount(); ++c )
@@ -122,7 +122,7 @@ std::map<QString, CellSet> lgrHostCells( const RigMainGrid& mainGrid, const QStr
         if ( !subGrid ) continue;
 
         const QString name = QString::fromStdString( subGrid->gridName() );
-        if ( name == excludedLgr ) continue;
+        if ( excludedLgrs.contains( name ) ) continue;
 
         if ( auto ijk = mainGrid.ijkFromCellIndex( c ) ) lgrCells["LGR " + name].insert( *ijk );
     }
@@ -414,14 +414,13 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
     CellSet required;
     addLaterallyExpanded( wellCells, settings.marginCells, mainGrid, required );
 
-    // An LGR around the well is kept away from the sector boundary
-    CellSet     lgrWithPadding;
-    QString     lgrName;
-    const auto* wellLgr = RicWellLgrTools::temporaryLgrForWell( mainGrid, settings.wellName );
-    if ( wellLgr )
+    // LGRs around the well are kept away from the sector boundary
+    CellSet  lgrWithPadding;
+    QStringList lgrNames;
+    for ( const auto* wellLgr : RicWellLgrTools::temporaryLgrsForWell( mainGrid, settings.wellName ) )
     {
         const LgrInfo info = RicWellLgrTools::lgrInfoFromTemporaryLgr( mainGrid, *wellLgr );
-        lgrName            = info.name;
+        lgrNames.push_back( info.name );
 
         const int pad = settings.lgrPaddingCells;
         if ( static_cast<int>( info.mainGridStartCell.i() ) < pad || static_cast<int>( info.mainGridStartCell.j() ) < pad ||
@@ -440,12 +439,13 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
         caf::VecIjk0 paddedMax( info.mainGridEndCell.i() + pad,
                                 info.mainGridEndCell.j() + pad,
                                 std::min( info.mainGridEndCell.k() + pad, mainGrid.cellCountK() - 1 ) );
-        lgrWithPadding = boxCells( paddedMin, paddedMax );
-        required.insert( lgrWithPadding.begin(), lgrWithPadding.end() );
+        const auto padded = boxCells( paddedMin, paddedMax );
+        lgrWithPadding.insert( padded.begin(), padded.end() );
     }
+    required.insert( lgrWithPadding.begin(), lgrWithPadding.end() );
 
     // Wells and LGRs must lie entirely inside or entirely outside the sector
-    std::map<QString, CellSet> objects = lgrHostCells( mainGrid, lgrName );
+    std::map<QString, CellSet> objects = lgrHostCells( mainGrid, lgrNames );
     for ( const auto& wellData : caseData->wellResults() )
     {
         if ( wellData->m_wellName == settings.wellName ) continue;
@@ -522,9 +522,9 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
         const bool   isActive  = activeInfo && activeInfo->isActive( ReservoirCellIndex( cellIndex ) );
         if ( isActive && !region.cells[cellIndex] )
         {
-            return std::unexpected( QString( "The LGR '%1' around well '%2' and the %3 cells around it are not all inside the sector, at "
+            return std::unexpected( QString( "The LGRs %1 around well '%2' and the %3 cells around them are not all inside the sector, at "
                                              "cell (%4, %5, %6). Sector models with an LGR on the sector boundary are not supported." )
-                                        .arg( lgrName )
+                                        .arg( lgrNames.join( ", " ) )
                                         .arg( settings.wellName )
                                         .arg( settings.lgrPaddingCells )
                                         .arg( c.i() + 1 )
@@ -708,6 +708,22 @@ std::expected<QString, QString> RicFluxSectorModelTools::relocateDeckFluxnum( Ri
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+bool RicFluxSectorModelTools::isMultiSegmentWell( const RifOpmFlowDeckFile& deckFile, const QString& wellName )
+{
+    const std::string well = wellName.toStdString();
+    for ( const std::string multiSegment : { "WELSEGS", "COMPSEGS" } )
+    {
+        for ( const auto& keyword : const_cast<RifOpmFlowDeckFile&>( deckFile ).findAllKeywords( multiSegment ) )
+        {
+            if ( keyword.size() > 0 && keyword.getRecord( 0 ).getItem( 0 ).getTrimmedString( 0 ) == well ) return true;
+        }
+    }
+    return false;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 std::expected<int, QString> RicFluxSectorModelTools::convertWellToLgr( RifOpmFlowDeckFile& deckFile,
                                                                        RimEclipseCase*     eclipseCase,
                                                                        const QString&      wellName,
@@ -716,16 +732,9 @@ std::expected<int, QString> RicFluxSectorModelTools::convertWellToLgr( RifOpmFlo
     const std::string well    = wellName.toStdString();
     const std::string lgrName = lgrInfo.name.toStdString();
 
-    for ( const std::string multiSegment : { "WELSEGS", "COMPSEGS" } )
+    if ( isMultiSegmentWell( deckFile, wellName ) )
     {
-        for ( const auto& keyword : deckFile.findAllKeywords( multiSegment ) )
-        {
-            if ( keyword.size() > 0 && keyword.getRecord( 0 ).getItem( 0 ).getTrimmedString( 0 ) == well )
-            {
-                return std::unexpected(
-                    QString( "Well '%1' is a multi-segment well. Multi-segment wells in LGRs are not supported yet." ).arg( wellName ) );
-            }
-        }
+        return std::unexpected( QString( "Well '%1' is a multi-segment well, which cannot be converted to COMPDATL yet." ).arg( wellName ) );
     }
     for ( const std::string connectionKeyword : { "COMPLUMP", "WPIMULT", "WELOPEN", "CSKIN" } )
     {
@@ -962,12 +971,16 @@ std::expected<int, QString> RicFluxSectorModelTools::convertWellToLgr( RifOpmFlo
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<void, QString> RicFluxSectorModelTools::addLgrDimensions( RifOpmFlowDeckFile& deckFile, const LgrInfo& lgrInfo )
+std::expected<void, QString> RicFluxSectorModelTools::addLgrDimensions( RifOpmFlowDeckFile& deckFile, const std::vector<LgrInfo>& lgrInfos )
 {
     using L = Opm::ParserKeywords::LGR;
 
-    int lgrCount  = 1;
-    int cellCount = static_cast<int>( lgrInfo.lgrCellCount() );
+    int lgrCount  = static_cast<int>( lgrInfos.size() );
+    int cellCount = 0;
+    for ( const auto& lgrInfo : lgrInfos )
+    {
+        cellCount += static_cast<int>( lgrInfo.lgrCellCount() );
+    }
     if ( auto existing = deckFile.findKeyword( "LGR" ) )
     {
         const auto& record = existing->getRecord( 0 );
@@ -1116,24 +1129,52 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
                                     .arg( QFileInfo( result.fluxnumFile ).fileName() )
                                     .arg( baseName );
 
-    if ( const auto* wellLgr = RicWellLgrTools::temporaryLgrForWell( mainGrid, settings.wellName ) )
+    std::vector<LgrInfo> lgrInfos;
+    for ( const auto* wellLgr : RicWellLgrTools::temporaryLgrsForWell( mainGrid, settings.wellName ) )
     {
-        const LgrInfo lgrInfo = RicWellLgrTools::lgrInfoFromTemporaryLgr( mainGrid, *wellLgr );
-        result.lgrName        = lgrInfo.name;
-        if ( lgrInfo.gradedRefinement )
+        lgrInfos.push_back( RicWellLgrTools::lgrInfoFromTemporaryLgr( mainGrid, *wellLgr ) );
+    }
+    if ( !lgrInfos.empty() )
+    {
+        for ( const auto& lgrInfo : lgrInfos )
         {
-            result.warnings.push_back(
-                QString( "The LGR '%1' is graded (NXFIN/HXFIN). OPM Flow does not support graded LGRs yet and refines "
-                         "each host cell uniformly instead; use a uniform LGR for OPM Flow." )
-                    .arg( lgrInfo.name ) );
+            result.lgrNames.push_back( lgrInfo.name );
+            gridText += "\n" + RicWellLgrTools::carfinBlock( lgrInfo,
+                                                             RicWellLgrTools::wellCountInBox( *eclipseCase->eclipseCaseData(),
+                                                                                              lgrInfo.mainGridStartCell,
+                                                                                              lgrInfo.mainGridEndCell ) );
         }
 
-        gridText += "\n" + RicWellLgrTools::carfinBlock( lgrInfo, 1 );
+        if ( auto added = addLgrDimensions( deck, lgrInfos ); !added ) return std::unexpected( added.error() );
 
-        if ( auto added = addLgrDimensions( deck, lgrInfo ); !added ) return std::unexpected( added.error() );
-
-        auto converted = convertWellToLgr( deck, eclipseCase, settings.wellName, lgrInfo );
-        if ( !converted ) return std::unexpected( converted.error() );
+        // A well in several LGRs, partly outside its LGR or with segments keeps its COMPDAT (and COMPSEGS)
+        const auto& lgr          = lgrInfos.front();
+        const bool  allInOneLgr  = lgrInfos.size() == 1 &&
+                                 std::ranges::all_of( RicWellLgrTools::simulationWellCells( *eclipseCase->eclipseCaseData(), settings.wellName ),
+                                                      [&lgr]( const caf::VecIjk0& c )
+                                                      {
+                                                          return c.i() >= lgr.mainGridStartCell.i() && c.i() <= lgr.mainGridEndCell.i() &&
+                                                                 c.j() >= lgr.mainGridStartCell.j() && c.j() <= lgr.mainGridEndCell.j() &&
+                                                                 c.k() >= lgr.mainGridStartCell.k() && c.k() <= lgr.mainGridEndCell.k();
+                                                      } );
+        const bool  multiSegment = isMultiSegmentWell( deck, settings.wellName );
+        if ( allInOneLgr && !multiSegment )
+        {
+            auto converted = convertWellToLgr( deck, eclipseCase, settings.wellName, lgrInfos.front() );
+            if ( !converted ) return std::unexpected( converted.error() );
+        }
+        else
+        {
+            result.warnings.push_back( QString( "Well '%1' %2, so its connections are kept as COMPDAT. OPM Flow moves the connections "
+                                                "in the LGRs %3 into them; other simulators need WELSPECL/COMPDATL%4." )
+                                           .arg( settings.wellName )
+                                           .arg( multiSegment       ? "is a multi-segment well"
+                                                 : allInOneLgr      ? ""
+                                                 : lgrInfos.size() > 1 ? "has several LGRs"
+                                                                       : "has connections outside its LGR" )
+                                           .arg( result.lgrNames.join( ", " ) )
+                                           .arg( multiSegment ? "/COMPSEGL" : "" ) );
+        }
     }
 
     const QString gridIncludeFile = exportFolder + "/" + baseName + "_GRID.inc";

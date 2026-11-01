@@ -10,8 +10,8 @@
 #
 # The parent run needs FLUXALL in its SUMMARY section, and preferably a restart at
 # every report step (RPTRST BASIC=2), see the sector modelling documentation of OPM
-# Flow. OPM Flow refines graded LGRs uniformly for now; use
-# lateral_refinement="UNIFORM" for a sector deck that OPM Flow is to run.
+# Flow. Graded LGRs (NXFIN/HXFIN) need OPM Flow's Conforming LGR backend. A well with
+# connections far apart, e.g. in two zones, gets one LGR per part.
 ###################################################################################
 
 import os
@@ -45,7 +45,7 @@ for grid in case.grids():
 result = view.create_sector_model_for_well(well_name=well_name, run_make_flux=False)
 print(f"Sector deck: {result.deck_file}")
 print(f"FLUXNUM:     {result.fluxnum_file}")
-print(f"LGR:         {result.lgr_name}")
+print(f"LGRs:        {result.lgr_name}")
 print(f"Cells:       {result.cell_count} ({result.active_cell_count} active)")
 print(f"Wells:       {', '.join(result.wells)}")
 for warning in result.warnings:

@@ -387,7 +387,7 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createSectorModelFo
     output->m_deckFile        = result->deckFile;
     output->m_fluxFile        = result->fluxFile;
     output->m_fluxnumFile     = result->fluxnumFile;
-    output->m_lgrName         = result->lgrName;
+    output->m_lgrName         = result->lgrNames.join( "," );
     output->m_cellCount       = result->sectorCellCount;
     output->m_activeCellCount = result->activeSectorCellCount;
     output->m_wells           = std::vector<QString>( result->wellsInSector.begin(), result->wellsInSector.end() );

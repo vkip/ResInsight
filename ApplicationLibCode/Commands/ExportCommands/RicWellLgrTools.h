@@ -25,6 +25,7 @@
 
 #include <QString>
 
+#include <array>
 #include <expected>
 #include <memory>
 #include <set>
@@ -87,14 +88,30 @@ std::vector<std::vector<double>> gradedCumulativeFractions( const std::vector<do
 
 QString defaultLgrName( const QString& wellName );
 
-std::expected<LgrInfo, QString> buildLgrForSimulationWell( RimEclipseCase& eclipseCase, const QString& wellName, const Settings& settings );
+// Name of LGR number index (zero-based) of count LGRs around one well, at most eight characters
+QString lgrName( const QString& baseName, size_t index, size_t count );
 
-// Replaces any temporary LGR of the well, keeping the temporary LGRs of other wells
-std::expected<LgrInfo, QString>
-    createTemporaryLgrForSimulationWell( RimEclipseCase* eclipseCase, const QString& wellName, const Settings& settings );
+using CellBox = std::pair<caf::VecIjk0, caf::VecIjk0>;
 
-const RigLocalGrid* temporaryLgrForWell( const RigMainGrid& mainGrid, const QString& wellName );
-LgrInfo             lgrInfoFromTemporaryLgr( const RigMainGrid& mainGrid, const RigLocalGrid& localGrid );
+// Boxes around the well cells, padded and clipped to the grid, merging boxes that overlap or touch, or whose
+// joined box holds at most 1.5 times their cells. A well with connections in separate parts of the grid, e.g.
+// in two zones, gets one box per part.
+std::vector<CellBox>
+    wellCellBoxes( const CellSet& wellCells, const std::array<size_t, 3>& padding, const std::array<size_t, 3>& gridCellCount );
+
+// One LGR per box of wellCellBoxes()
+std::expected<std::vector<LgrInfo>, QString>
+    buildLgrsForSimulationWell( RimEclipseCase& eclipseCase, const QString& wellName, const Settings& settings );
+
+// Replaces any temporary LGRs of the well, keeping the temporary LGRs of other wells
+std::expected<std::vector<LgrInfo>, QString>
+    createTemporaryLgrsForSimulationWell( RimEclipseCase* eclipseCase, const QString& wellName, const Settings& settings );
+
+std::vector<const RigLocalGrid*> temporaryLgrsForWell( const RigMainGrid& mainGrid, const QString& wellName );
+LgrInfo                          lgrInfoFromTemporaryLgr( const RigMainGrid& mainGrid, const RigLocalGrid& localGrid );
+
+// Number of simulation wells with connections in the box, at least one
+int wellCountInBox( const RigEclipseCaseData& caseData, const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax );
 
 // Subdivision of the LGR box, uniform or graded, relative to the box
 std::unique_ptr<RigRefinement> lgrRefinement( const LgrInfo& lgrInfo );

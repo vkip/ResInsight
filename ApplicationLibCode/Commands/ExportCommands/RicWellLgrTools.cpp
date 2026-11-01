@@ -45,6 +45,7 @@
 #include <cmath>
 #include <limits>
 #include <map>
+#include <numeric>
 
 namespace caf
 {
@@ -293,8 +294,109 @@ QString RicWellLgrTools::defaultLgrName( const QString& wellName )
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<LgrInfo, QString>
-    RicWellLgrTools::buildLgrForSimulationWell( RimEclipseCase& eclipseCase, const QString& wellName, const Settings& settings )
+QString RicWellLgrTools::lgrName( const QString& baseName, size_t index, size_t count )
+{
+    if ( count <= 1 ) return baseName.left( 8 );
+
+    const QString suffix = QString( "_%1" ).arg( index + 1 );
+    return baseName.left( 8 - suffix.length() ) + suffix;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::vector<RicWellLgrTools::CellBox> RicWellLgrTools::wellCellBoxes( const CellSet&                wellCells,
+                                                                      const std::array<size_t, 3>& padding,
+                                                                      const std::array<size_t, 3>& gridCellCount )
+{
+    std::vector<CellBox> boxes;
+    for ( const auto& c : wellCells )
+    {
+        caf::VecIjk0 boxMin = c;
+        caf::VecIjk0 boxMax = c;
+        for ( size_t d = 0; d < 3; ++d )
+        {
+            boxMin[d] = c[d] > padding[d] ? c[d] - padding[d] : 0;
+            boxMax[d] = std::min( c[d] + padding[d], gridCellCount[d] - 1 );
+        }
+        boxes.emplace_back( boxMin, boxMax );
+    }
+
+    auto touch = []( const CellBox& a, const CellBox& b )
+    {
+        for ( size_t d = 0; d < 3; ++d )
+        {
+            if ( a.first[d] > b.second[d] + 1 || b.first[d] > a.second[d] + 1 ) return false;
+        }
+        return true;
+    };
+    auto cellCount = []( const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax )
+    { return ( boxMax.i() - boxMin.i() + 1 ) * ( boxMax.j() - boxMin.j() + 1 ) * ( boxMax.k() - boxMin.k() + 1 ); };
+
+    // Boxes a little apart, e.g. across a layer without connections, are joined as well
+    const double maxJoinedCellRatio = 1.5;
+    auto         join               = [&]( const CellBox& a, const CellBox& b )
+    {
+        if ( touch( a, b ) ) return true;
+        caf::VecIjk0 joinedMin = a.first;
+        caf::VecIjk0 joinedMax = a.second;
+        for ( size_t d = 0; d < 3; ++d )
+        {
+            joinedMin[d] = std::min( a.first[d], b.first[d] );
+            joinedMax[d] = std::max( a.second[d], b.second[d] );
+        }
+        return cellCount( joinedMin, joinedMax ) <= maxJoinedCellRatio * ( cellCount( a.first, a.second ) + cellCount( b.first, b.second ) );
+    };
+
+    for ( bool merged = true; merged; )
+    {
+        merged = false;
+        for ( size_t a = 0; a < boxes.size() && !merged; ++a )
+        {
+            for ( size_t b = a + 1; b < boxes.size() && !merged; ++b )
+            {
+                if ( !join( boxes[a], boxes[b] ) ) continue;
+                for ( size_t d = 0; d < 3; ++d )
+                {
+                    boxes[a].first[d]  = std::min( boxes[a].first[d], boxes[b].first[d] );
+                    boxes[a].second[d] = std::max( boxes[a].second[d], boxes[b].second[d] );
+                }
+                boxes.erase( boxes.begin() + b );
+                merged = true;
+            }
+        }
+    }
+
+    std::sort( boxes.begin(), boxes.end(), []( const CellBox& a, const CellBox& b ) { return IjkLess()( a.first, b.first ); } );
+    return boxes;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+int RicWellLgrTools::wellCountInBox( const RigEclipseCaseData& caseData, const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax )
+{
+    int count = 0;
+    for ( const auto& wellData : caseData.wellResults() )
+    {
+        for ( const auto& c : simulationWellCells( caseData, wellData->m_wellName ) )
+        {
+            if ( c.i() >= boxMin.i() && c.i() <= boxMax.i() && c.j() >= boxMin.j() && c.j() <= boxMax.j() && c.k() >= boxMin.k() &&
+                 c.k() <= boxMax.k() )
+            {
+                count++;
+                break;
+            }
+        }
+    }
+    return std::max( count, 1 );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<std::vector<LgrInfo>, QString>
+    RicWellLgrTools::buildLgrsForSimulationWell( RimEclipseCase& eclipseCase, const QString& wellName, const Settings& settings )
 {
     const RigEclipseCaseData* caseData = eclipseCase.eclipseCaseData();
     if ( !caseData || !caseData->mainGrid() ) return std::unexpected( "The case has no grid." );
@@ -309,157 +411,239 @@ std::expected<LgrInfo, QString>
         return std::unexpected( "Logarithmic refinement needs a positive minimum cell size and a growth factor above 1." );
     }
 
-    const auto wellCells = simulationWellCells( *caseData, wellName, settings.timeStep );
-    if ( wellCells.empty() ) return std::unexpected( QString( "Well '%1' has no connections in the main grid." ).arg( wellName ) );
+    const auto allWellCells = simulationWellCells( *caseData, wellName, settings.timeStep );
+    if ( allWellCells.empty() ) return std::unexpected( QString( "Well '%1' has no connections in the main grid." ).arg( wellName ) );
 
-    caf::VecIjk0 wellMin = *wellCells.begin();
-    caf::VecIjk0 wellMax = *wellCells.begin();
-    for ( const auto& c : wellCells )
+    const std::array<size_t, 3> gridCount = { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() };
+    const std::array<size_t, 3> padding   = { static_cast<size_t>( std::max( settings.paddingIJ, 0 ) ),
+                                              static_cast<size_t>( std::max( settings.paddingIJ, 0 ) ),
+                                              static_cast<size_t>( std::max( settings.paddingK, 0 ) ) };
+    auto boxes = wellCellBoxes( allWellCells, padding, gridCount );
+
+    auto inBox = []( const caf::VecIjk0& c, const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax )
     {
-        for ( size_t d = 0; d < 3; ++d )
+        return c.i() >= boxMin.i() && c.i() <= boxMax.i() && c.j() >= boxMin.j() && c.j() <= boxMax.j() && c.k() >= boxMin.k() &&
+               c.k() <= boxMax.k();
+    };
+
+    // OPM Flow cannot join graded LGRs across a fault, where the well may well cross from one box to the
+    // next. Of boxes meeting across faults, the one with most connections is kept.
+    if ( settings.lateralRefinement == LateralRefinement::LOGARITHMIC && boxes.size() > 1 )
+    {
+        auto boxOf = [&]( size_t cellIndex ) -> int
         {
-            wellMin[d] = std::min( wellMin[d], c[d] );
-            wellMax[d] = std::max( wellMax[d], c[d] );
-        }
-    }
-
-    const size_t gridCount[3] = { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() };
-    const int    padding[3]   = { settings.paddingIJ, settings.paddingIJ, settings.paddingK };
-    caf::VecIjk0 boxMin       = wellMin;
-    caf::VecIjk0 boxMax       = wellMax;
-    for ( size_t d = 0; d < 3; ++d )
-    {
-        const size_t pad = static_cast<size_t>( std::max( padding[d], 0 ) );
-        boxMin[d]        = wellMin[d] > pad ? wellMin[d] - pad : 0;
-        boxMax[d]        = std::min( wellMax[d] + pad, gridCount[d] - 1 );
-    }
-
-    // The LGR must not overlap other LGRs
-    for ( size_t k = boxMin.k(); k <= boxMax.k(); ++k )
-    {
-        for ( size_t j = boxMin.j(); j <= boxMax.j(); ++j )
-        {
-            for ( size_t i = boxMin.i(); i <= boxMax.i(); ++i )
+            if ( cellIndex >= mainGrid.cellCount() ) return -1;
+            const auto ijk = mainGrid.ijkFromCellIndex( cellIndex );
+            if ( !ijk ) return -1;
+            for ( size_t b = 0; b < boxes.size(); ++b )
             {
-                const RigGridBase* subGrid = mainGrid.cell( mainGrid.cellIndexFromIJK( i, j, k ) ).subGrid();
-                if ( subGrid && subGrid->associatedWellPathName() != wellName.toStdString() )
+                if ( inBox( *ijk, boxes[b].first, boxes[b].second ) ) return static_cast<int>( b );
+            }
+            return -1;
+        };
+
+        std::vector<size_t> component( boxes.size() );
+        std::iota( component.begin(), component.end(), size_t( 0 ) );
+        auto root = [&component]( size_t b )
+        {
+            while ( component[b] != b )
+                b = component[b];
+            return b;
+        };
+        if ( auto nncData = const_cast<RigMainGrid&>( mainGrid ).nncData() )
+        {
+            for ( const auto& connection : nncData->availableConnections() )
+            {
+                const int a = boxOf( connection.c1GlobIdx() );
+                const int b = boxOf( connection.c2GlobIdx() );
+                if ( a >= 0 && b >= 0 && a != b ) component[root( a )] = root( b );
+            }
+        }
+
+        std::map<size_t, size_t> bestOfComponent;
+        std::vector<size_t>      connectionCount( boxes.size(), 0 );
+        for ( size_t b = 0; b < boxes.size(); ++b )
+        {
+            for ( const auto& c : allWellCells )
+            {
+                if ( inBox( c, boxes[b].first, boxes[b].second ) ) connectionCount[b]++;
+            }
+            auto [it, inserted] = bestOfComponent.emplace( root( b ), b );
+            if ( !inserted && connectionCount[b] > connectionCount[it->second] ) it->second = b;
+        }
+
+        std::vector<CellBox> kept;
+        for ( size_t b = 0; b < boxes.size(); ++b )
+        {
+            if ( bestOfComponent[root( b )] == b )
+            {
+                kept.push_back( boxes[b] );
+                continue;
+            }
+            RiaLogging::warning( QString( "Well '%1': the cells I %2-%3, J %4-%5, K %6-%7 with %8 of its connections meet another of its "
+                                          "LGRs across a fault. OPM Flow cannot join graded LGRs across faults, so these "
+                                          "connections are left in the main grid." )
+                                     .arg( wellName )
+                                     .arg( boxes[b].first.i() + 1 )
+                                     .arg( boxes[b].second.i() + 1 )
+                                     .arg( boxes[b].first.j() + 1 )
+                                     .arg( boxes[b].second.j() + 1 )
+                                     .arg( boxes[b].first.k() + 1 )
+                                     .arg( boxes[b].second.k() + 1 )
+                                     .arg( connectionCount[b] )
+                                     .toStdString() );
+        }
+        boxes = kept;
+    }
+
+    const QString baseName = settings.lgrName.isEmpty() ? defaultLgrName( wellName ) : settings.lgrName;
+
+    std::vector<LgrInfo> lgrs;
+    for ( size_t b = 0; b < boxes.size(); ++b )
+    {
+        const auto& [boxMin, boxMax] = boxes[b];
+        const QString name           = lgrName( baseName, b, boxes.size() );
+
+        CellSet wellCells;
+        for ( const auto& c : allWellCells )
+        {
+            if ( inBox( c, boxMin, boxMax ) ) wellCells.insert( c );
+        }
+
+        // The LGR must not overlap other LGRs
+        for ( size_t k = boxMin.k(); k <= boxMax.k(); ++k )
+        {
+            for ( size_t j = boxMin.j(); j <= boxMax.j(); ++j )
+            {
+                for ( size_t i = boxMin.i(); i <= boxMax.i(); ++i )
                 {
-                    return std::unexpected( QString( "The LGR around well '%1' would overlap the LGR '%2' at cell (%3, %4, %5)." )
-                                                .arg( wellName )
-                                                .arg( QString::fromStdString( subGrid->gridName() ) )
-                                                .arg( i + 1 )
-                                                .arg( j + 1 )
-                                                .arg( k + 1 ) );
+                    const RigGridBase* subGrid = mainGrid.cell( mainGrid.cellIndexFromIJK( i, j, k ) ).subGrid();
+                    if ( subGrid && subGrid->associatedWellPathName() != wellName.toStdString() )
+                    {
+                        return std::unexpected( QString( "The LGR around well '%1' would overlap the LGR '%2' at cell (%3, %4, %5)." )
+                                                    .arg( wellName )
+                                                    .arg( QString::fromStdString( subGrid->gridName() ) )
+                                                    .arg( i + 1 )
+                                                    .arg( j + 1 )
+                                                    .arg( k + 1 ) );
+                    }
                 }
             }
         }
-    }
 
-    // The LGR must not hold connections of other wells, which would refer to refined host cells
-    for ( const auto& wellData : caseData->wellResults() )
-    {
-        if ( wellData->m_wellName == wellName ) continue;
-        for ( const auto& c : simulationWellCells( *caseData, wellData->m_wellName ) )
+        // Connections of other wells in the box are refined along with the host cells. OPM Flow moves COMPDAT
+        // connections in a CARFIN box into the LGR, other simulators need them as COMPDATL.
+        for ( const auto& wellData : caseData->wellResults() )
         {
-            if ( c.i() >= boxMin.i() && c.i() <= boxMax.i() && c.j() >= boxMin.j() && c.j() <= boxMax.j() && c.k() >= boxMin.k() &&
-                 c.k() <= boxMax.k() )
+            if ( wellData->m_wellName == wellName ) continue;
+            for ( const auto& c : simulationWellCells( *caseData, wellData->m_wellName ) )
             {
-                return std::unexpected( QString( "The LGR around well '%1' would hold connections of well '%2' at cell (%3, %4, %5). "
-                                                 "Use a smaller padding." )
-                                            .arg( wellName )
-                                            .arg( wellData->m_wellName )
-                                            .arg( c.i() + 1 )
-                                            .arg( c.j() + 1 )
-                                            .arg( c.k() + 1 ) );
+                if ( !inBox( c, boxMin, boxMax ) ) continue;
+                RiaLogging::warning( QString( "The LGR '%1' around well '%2' holds connections of well '%3', e.g. at cell (%4, %5, %6). "
+                                              "OPM Flow moves them into the LGR; use a smaller padding to avoid it." )
+                                         .arg( name )
+                                         .arg( wellName )
+                                         .arg( wellData->m_wellName )
+                                         .arg( c.i() + 1 )
+                                         .arg( c.j() + 1 )
+                                         .arg( c.k() + 1 )
+                                         .toStdString() );
+                break;
             }
         }
-    }
 
-    // OPM Flow's default LGR backend cannot refine cells with more than six faces, e.g. cells at faults with throw
-    if ( auto nncData = const_cast<RigMainGrid&>( mainGrid ).nncData() )
-    {
-        size_t faultedHostCells = 0;
-        for ( const auto& connection : nncData->availableConnections() )
+        if ( auto nncData = const_cast<RigMainGrid&>( mainGrid ).nncData() )
         {
-            for ( size_t cellIndex : { connection.c1GlobIdx(), connection.c2GlobIdx() } )
+            size_t faultedHostCells = 0;
+            for ( const auto& connection : nncData->availableConnections() )
             {
-                if ( cellIndex >= mainGrid.cellCount() ) continue;
-                if ( auto ijk = mainGrid.ijkFromCellIndex( cellIndex ); ijk && ijk->i() >= boxMin.i() && ijk->i() <= boxMax.i() &&
-                                                                        ijk->j() >= boxMin.j() && ijk->j() <= boxMax.j() &&
-                                                                        ijk->k() >= boxMin.k() && ijk->k() <= boxMax.k() )
+                for ( size_t cellIndex : { connection.c1GlobIdx(), connection.c2GlobIdx() } )
                 {
-                    faultedHostCells++;
+                    if ( cellIndex >= mainGrid.cellCount() ) continue;
+                    if ( auto ijk = mainGrid.ijkFromCellIndex( cellIndex ); ijk && inBox( *ijk, boxMin, boxMax ) ) faultedHostCells++;
                 }
             }
+            if ( faultedHostCells > 0 )
+            {
+                RiaLogging::info( QString( "The LGR '%1' around well '%2' has %3 non-neighbour connections to its host cells, e.g. "
+                                           "across faults. Refining such cells needs OPM Flow's Conforming LGR backend." )
+                                      .arg( name )
+                                      .arg( wellName )
+                                      .arg( faultedHostCells )
+                                      .toStdString() );
+            }
         }
-        if ( faultedHostCells > 0 )
+
+        const cvf::Vec3st boxSize( boxMax.i() - boxMin.i() + 1, boxMax.j() - boxMin.j() + 1, boxMax.k() - boxMin.k() + 1 );
+
+        if ( settings.lateralRefinement == LateralRefinement::UNIFORM )
         {
-            RiaLogging::warning(
-                QString( "The LGR around well '%1' has %2 non-neighbour connections to its host cells, e.g. across faults. "
-                         "OPM Flow can currently only refine cells with six faces." )
-                    .arg( wellName )
-                    .arg( faultedHostCells )
-                    .toStdString() );
+            cvf::Vec3st refinement( settings.refinementI, settings.refinementJ, settings.refinementK );
+            lgrs.emplace_back( 0, name, wellName, refinement, boxMin, boxMax );
+            continue;
         }
-    }
 
-    const QString     lgrName = settings.lgrName.isEmpty() ? defaultLgrName( wellName ) : settings.lgrName.left( 8 );
-    const cvf::Vec3st boxSize( boxMax.i() - boxMin.i() + 1, boxMax.j() - boxMin.j() + 1, boxMax.k() - boxMin.k() + 1 );
+        auto graded = std::make_shared<RigNonUniformRefinement>( boxSize );
 
-    if ( settings.lateralRefinement == LateralRefinement::UNIFORM )
-    {
-        cvf::Vec3st refinement( settings.refinementI, settings.refinementJ, settings.refinementK );
-        return LgrInfo( 0, lgrName, wellName, refinement, boxMin, boxMax );
-    }
-
-    auto graded = std::make_shared<RigNonUniformRefinement>( boxSize );
-
-    // A direction the well runs along over several cells is not graded, the others are graded around the well cells
-    std::set<size_t> wellParents[2];
-    for ( const auto& c : wellCells )
-    {
-        wellParents[0].insert( c.i() - boxMin.i() );
-        wellParents[1].insert( c.j() - boxMin.j() );
-    }
-    const size_t alongWellThreshold = 3;
-    int          alongWellDim       = -1;
-    if ( std::max( wellParents[0].size(), wellParents[1].size() ) >= alongWellThreshold && wellParents[0].size() != wellParents[1].size() )
-    {
-        alongWellDim = wellParents[0].size() > wellParents[1].size() ? 0 : 1;
-    }
-
-    for ( int d = 0; d < 2; ++d )
-    {
-        const auto dim = static_cast<RigRefinement::Dimension>( d );
-        if ( d == alongWellDim ) continue;
-
-        const auto widths    = parentCellWidths( mainGrid, boxMin, boxMax, dim );
-        const auto fractions = gradedCumulativeFractions( widths, wellParents[d], settings.minCellSize, settings.growthFactor );
-        for ( size_t p = 0; p < fractions.size(); ++p )
+        // A direction the well runs along over several cells, staying within one or two cells in the other
+        // direction, is not graded. Otherwise both lateral directions are graded around the well cells.
+        std::set<size_t> wellParents[2];
+        for ( const auto& c : wellCells )
         {
-            graded->setCumulativeFractions( dim, p, fractions[p] );
+            wellParents[0].insert( c.i() - boxMin.i() );
+            wellParents[1].insert( c.j() - boxMin.j() );
         }
-    }
-    for ( size_t k = 0; k < boxSize.z(); ++k )
-    {
-        graded->setCumulativeFractions( RigRefinement::DimK, k, equalFractions( settings.refinementK ) );
+        const size_t alongWellThreshold = 3;
+        const size_t acrossWellMaximum  = 2;
+        int          alongWellDim       = -1;
+        for ( int d = 0; d < 2; ++d )
+        {
+            if ( wellParents[d].size() >= alongWellThreshold && wellParents[1 - d].size() <= acrossWellMaximum ) alongWellDim = d;
+        }
+
+        for ( int d = 0; d < 2; ++d )
+        {
+            const auto dim = static_cast<RigRefinement::Dimension>( d );
+            if ( d == alongWellDim ) continue;
+
+            const auto widths    = parentCellWidths( mainGrid, boxMin, boxMax, dim );
+            const auto fractions = gradedCumulativeFractions( widths, wellParents[d], settings.minCellSize, settings.growthFactor );
+            for ( size_t p = 0; p < fractions.size(); ++p )
+            {
+                graded->setCumulativeFractions( dim, p, fractions[p] );
+            }
+        }
+        for ( size_t k = 0; k < boxSize.z(); ++k )
+        {
+            graded->setCumulativeFractions( RigRefinement::DimK, k, equalFractions( settings.refinementK ) );
+        }
+
+        LgrInfo info( 0, name, wellName, cvf::Vec3st( 1, 1, settings.refinementK ), boxMin, boxMax );
+        info.gradedRefinement = graded;
+        lgrs.push_back( info );
     }
 
-    LgrInfo info( 0, lgrName, wellName, cvf::Vec3st( 1, 1, settings.refinementK ), boxMin, boxMax );
-    info.gradedRefinement = graded;
-    return info;
+    return lgrs;
 }
 
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<LgrInfo, QString>
-    RicWellLgrTools::createTemporaryLgrForSimulationWell( RimEclipseCase* eclipseCase, const QString& wellName, const Settings& settings )
+std::expected<std::vector<LgrInfo>, QString>
+    RicWellLgrTools::createTemporaryLgrsForSimulationWell( RimEclipseCase* eclipseCase, const QString& wellName, const Settings& settings )
 {
     if ( !eclipseCase || !eclipseCase->eclipseCaseData() ) return std::unexpected( "No case is available." );
 
-    auto newLgr = buildLgrForSimulationWell( *eclipseCase, wellName, settings );
-    if ( !newLgr ) return newLgr;
+    auto newLgrs = buildLgrsForSimulationWell( *eclipseCase, wellName, settings );
+    if ( !newLgrs ) return newLgrs;
+
+    auto isNewName = [&newLgrs]( const std::string& gridName )
+    {
+        return std::any_of( newLgrs->begin(),
+                            newLgrs->end(),
+                            [&gridName]( const LgrInfo& lgr )
+                            { return QString::fromStdString( gridName ).compare( lgr.name, Qt::CaseInsensitive ) == 0; } );
+    };
 
     // Deleting temporary LGRs reloads the grid, so the LGRs of other wells are recreated afterwards
     std::vector<LgrInfo> lgrsToKeep;
@@ -472,16 +656,15 @@ std::expected<LgrInfo, QString>
             if ( !grid->isTempGrid() )
             {
                 maxRealGridId = std::max( maxRealGridId, grid->gridId() );
-                if ( QString::fromStdString( grid->gridName() ).compare( newLgr->name, Qt::CaseInsensitive ) == 0 )
+                if ( isNewName( grid->gridName() ) )
                 {
-                    return std::unexpected( QString( "The case already has an LGR named '%1'." ).arg( newLgr->name ) );
+                    return std::unexpected( QString( "The case already has an LGR named '%1'." ).arg( QString::fromStdString( grid->gridName() ) ) );
                 }
                 continue;
             }
 
             const auto* localGrid = dynamic_cast<const RigLocalGrid*>( grid );
-            if ( !localGrid || localGrid->associatedWellPathName() == wellName.toStdString() ||
-                 QString::fromStdString( grid->gridName() ).compare( newLgr->name, Qt::CaseInsensitive ) == 0 )
+            if ( !localGrid || localGrid->associatedWellPathName() == wellName.toStdString() || isNewName( grid->gridName() ) )
             {
                 continue;
             }
@@ -491,7 +674,8 @@ std::expected<LgrInfo, QString>
 
     RicDeleteTemporaryLgrsFeature::deleteAllTemporaryLgrs( eclipseCase );
 
-    lgrsToKeep.push_back( *newLgr );
+    const size_t firstNew = lgrsToKeep.size();
+    lgrsToKeep.insert( lgrsToKeep.end(), newLgrs->begin(), newLgrs->end() );
     int nextId = maxRealGridId + 1;
     for ( auto& lgr : lgrsToKeep )
     {
@@ -501,38 +685,43 @@ std::expected<LgrInfo, QString>
 
     RigReservoirGridTools::refreshEclipseCaseDataAndViews( eclipseCase );
 
-    const auto cellCounts = lgrsToKeep.back().lgrCellCounts();
-    RiaLogging::info( QString( "Created LGR '%1' around well '%2': host cells I %3-%4, J %5-%6, K %7-%8, %9 x %10 x %11 cells" )
-                          .arg( lgrsToKeep.back().name )
-                          .arg( wellName )
-                          .arg( lgrsToKeep.back().mainGridStartCell.i() + 1 )
-                          .arg( lgrsToKeep.back().mainGridEndCell.i() + 1 )
-                          .arg( lgrsToKeep.back().mainGridStartCell.j() + 1 )
-                          .arg( lgrsToKeep.back().mainGridEndCell.j() + 1 )
-                          .arg( lgrsToKeep.back().mainGridStartCell.k() + 1 )
-                          .arg( lgrsToKeep.back().mainGridEndCell.k() + 1 )
-                          .arg( cellCounts.i() )
-                          .arg( cellCounts.j() )
-                          .arg( cellCounts.k() )
-                          .toStdString() );
+    std::vector<LgrInfo> created( lgrsToKeep.begin() + firstNew, lgrsToKeep.end() );
+    for ( const auto& lgr : created )
+    {
+        const auto cellCounts = lgr.lgrCellCounts();
+        RiaLogging::info( QString( "Created LGR '%1' around well '%2': host cells I %3-%4, J %5-%6, K %7-%8, %9 x %10 x %11 cells" )
+                              .arg( lgr.name )
+                              .arg( wellName )
+                              .arg( lgr.mainGridStartCell.i() + 1 )
+                              .arg( lgr.mainGridEndCell.i() + 1 )
+                              .arg( lgr.mainGridStartCell.j() + 1 )
+                              .arg( lgr.mainGridEndCell.j() + 1 )
+                              .arg( lgr.mainGridStartCell.k() + 1 )
+                              .arg( lgr.mainGridEndCell.k() + 1 )
+                              .arg( cellCounts.i() )
+                              .arg( cellCounts.j() )
+                              .arg( cellCounts.k() )
+                              .toStdString() );
+    }
 
-    return lgrsToKeep.back();
+    return created;
 }
 
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-const RigLocalGrid* RicWellLgrTools::temporaryLgrForWell( const RigMainGrid& mainGrid, const QString& wellName )
+std::vector<const RigLocalGrid*> RicWellLgrTools::temporaryLgrsForWell( const RigMainGrid& mainGrid, const QString& wellName )
 {
+    std::vector<const RigLocalGrid*> lgrs;
     for ( size_t g = 1; g < mainGrid.gridCount(); ++g )
     {
         const auto* localGrid = dynamic_cast<const RigLocalGrid*>( mainGrid.gridByIndex( g ) );
         if ( localGrid && localGrid->isTempGrid() && localGrid->associatedWellPathName() == wellName.toStdString() )
         {
-            return localGrid;
+            lgrs.push_back( localGrid );
         }
     }
-    return nullptr;
+    return lgrs;
 }
 
 //--------------------------------------------------------------------------------------------------

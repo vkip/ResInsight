@@ -37,7 +37,7 @@ class RimPolygonFilter;
 /// A sector model around a simulation well for an OPM Flow run with USEFLUX. The sector is a FLUXNUM
 /// region defined by a polygon around the well, its boundary data is built by make_flux from the
 /// results of the case, and the parent deck is copied with USEFLUX, FLUXREG and the FLUXNUM region
-/// added. A temporary LGR around the well is carried into the sector deck.
+/// added. Temporary LGRs around the well are carried into the sector deck.
 ///
 //==================================================================================================
 namespace RicFluxSectorModelTools
@@ -60,7 +60,7 @@ struct Result
     QString     deckFile;
     QString     fluxFile;
     QString     fluxnumFile;
-    QString     lgrName;
+    QStringList lgrNames;
     int         sectorCellCount       = 0;
     int         activeSectorCellCount = 0;
     QStringList wellsInSector;
@@ -87,9 +87,12 @@ std::vector<cvf::Vec3d> convexHullXY( const std::vector<cvf::Vec3d>& points, dou
 // moved to MULTNUM or OPERNUM. Returns a description of what was done.
 std::expected<QString, QString> relocateDeckFluxnum( RifOpmFlowDeckFile& deckFile );
 
+// Whether the deck defines the well as a multi-segment well (WELSEGS)
+bool isMultiSegmentWell( const RifOpmFlowDeckFile& deckFile, const QString& wellName );
+
 // Converts the well's WELSPECS and COMPDAT to WELSPECL and COMPDATL in the LGR
 std::expected<int, QString>
     convertWellToLgr( RifOpmFlowDeckFile& deckFile, RimEclipseCase* eclipseCase, const QString& wellName, const LgrInfo& lgrInfo );
 
-std::expected<void, QString> addLgrDimensions( RifOpmFlowDeckFile& deckFile, const LgrInfo& lgrInfo );
+std::expected<void, QString> addLgrDimensions( RifOpmFlowDeckFile& deckFile, const std::vector<LgrInfo>& lgrInfos );
 } // namespace RicFluxSectorModelTools

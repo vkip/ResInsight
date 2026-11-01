@@ -1084,8 +1084,9 @@ RimEclipseCase_createLgrForSimulationWell::RimEclipseCase_createLgrForSimulation
     CAF_PDM_InitObject( "Create LGR for Simulation Well",
                         "",
                         "",
-                        "Create a temporary local grid refinement around the connections of a simulation well. A previous "
-                        "temporary LGR of the well is replaced; the temporary LGRs of other wells are kept." );
+                        "Create temporary local grid refinements around the connections of a simulation well, one per part of the well "
+                        "where its connections lie apart, e.g. in different zones. Previous "
+                        "temporary LGRs of the well are replaced; the temporary LGRs of other wells are kept." );
 
     CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
     CAF_PDM_InitScriptableField( &m_lgrName,
@@ -1094,7 +1095,8 @@ RimEclipseCase_createLgrForSimulationWell::RimEclipseCase_createLgrForSimulation
                                  "LGR Name",
                                  "",
                                  "",
-                                 "Name of the LGR, at most eight characters. Default: 'L' followed by the well name" );
+                                 "Name of the LGR, at most eight characters. Default: 'L' followed by the well name. Several LGRs "
+                                 "of one well are numbered: name_1, name_2, ..." );
     CAF_PDM_InitScriptableField( &m_timeStep,
                                  "TimeStep",
                                  -1,
@@ -1158,7 +1160,7 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createLgrForSimulat
     settings.paddingIJ         = m_paddingIJ();
     settings.paddingK          = m_paddingK();
 
-    auto result = RicWellLgrTools::createTemporaryLgrForSimulationWell( eclipseCase, m_wellName(), settings );
+    auto result = RicWellLgrTools::createTemporaryLgrsForSimulationWell( eclipseCase, m_wellName(), settings );
     if ( !result ) return std::unexpected( result.error() );
 
     return nullptr;

@@ -126,6 +126,48 @@ TEST( RicWellLgrToolsTest, DefaultLgrName )
 {
     EXPECT_EQ( RicWellLgrTools::defaultLgrName( "B-2H" ), QString( "LB-2H" ) );
     EXPECT_EQ( RicWellLgrTools::defaultLgrName( "PRODUCER12" ), QString( "LPRODUCE" ) );
+
+    EXPECT_EQ( RicWellLgrTools::lgrName( "LA4", 0, 1 ), QString( "LA4" ) );
+    EXPECT_EQ( RicWellLgrTools::lgrName( "LA4", 1, 2 ), QString( "LA4_2" ) );
+    EXPECT_EQ( RicWellLgrTools::lgrName( "LPRODUCE", 0, 2 ), QString( "LPRODU_1" ) );
+}
+
+//--------------------------------------------------------------------------------------------------
+/// A well in two zones far apart gets two boxes, the cells of each zone a single box
+//--------------------------------------------------------------------------------------------------
+TEST( RicWellLgrToolsTest, WellCellBoxes )
+{
+    RicWellLgrTools::CellSet cells;
+    for ( size_t i = 30; i <= 34; ++i )
+    {
+        cells.insert( caf::VecIjk0( i, 50, i - 30 ) );
+    }
+    cells.insert( caf::VecIjk0( 35, 48, 30 ) );
+    cells.insert( caf::VecIjk0( 37, 46, 30 ) );
+
+    const auto boxes = RicWellLgrTools::wellCellBoxes( cells, { 2, 2, 0 }, { 40, 60, 32 } );
+    ASSERT_EQ( boxes.size(), 2u );
+    EXPECT_EQ( boxes[0].first, caf::VecIjk0( 28, 48, 0 ) );
+    EXPECT_EQ( boxes[0].second, caf::VecIjk0( 36, 52, 4 ) );
+    EXPECT_EQ( boxes[1].first, caf::VecIjk0( 33, 44, 30 ) );
+    EXPECT_EQ( boxes[1].second, caf::VecIjk0( 39, 50, 30 ) );
+
+    // Vertical padding joins them, and the boxes are clipped to the grid
+    const auto joined = RicWellLgrTools::wellCellBoxes( cells, { 2, 2, 26 }, { 40, 60, 32 } );
+    ASSERT_EQ( joined.size(), 1u );
+    EXPECT_EQ( joined[0].first, caf::VecIjk0( 28, 44, 0 ) );
+    EXPECT_EQ( joined[0].second, caf::VecIjk0( 39, 52, 31 ) );
+
+    // A vertical well with a layer without connections gets one box
+    RicWellLgrTools::CellSet column;
+    for ( size_t k : { 1, 2, 4, 5, 6, 8 } )
+    {
+        column.insert( caf::VecIjk0( 10, 10, k ) );
+    }
+    const auto columnBoxes = RicWellLgrTools::wellCellBoxes( column, { 1, 1, 0 }, { 20, 20, 10 } );
+    ASSERT_EQ( columnBoxes.size(), 1u );
+    EXPECT_EQ( columnBoxes[0].first, caf::VecIjk0( 9, 9, 1 ) );
+    EXPECT_EQ( columnBoxes[0].second, caf::VecIjk0( 11, 11, 8 ) );
 }
 
 //--------------------------------------------------------------------------------------------------

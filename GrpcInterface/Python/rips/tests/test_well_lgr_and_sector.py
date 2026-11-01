@@ -65,14 +65,21 @@ def test_create_lgr_for_simulation_well_errors(rips_instance, initialize_test):
     with pytest.raises(rips.RipsError, match="no connections"):
         case.create_lgr_for_simulation_well(well_name="NO_SUCH_WELL")
 
-    # A padding that reaches the connections of P1 from P3
-    with pytest.raises(rips.RipsError, match="would hold connections of well"):
-        case.create_lgr_for_simulation_well(well_name="P3", lateral_padding=8)
-
     with pytest.raises(rips.RipsError, match="growth factor"):
         case.create_lgr_for_simulation_well(well_name="P3", growth_factor=1.0)
 
     assert len(case.grids()) == 1
+
+
+def test_create_lgr_holding_other_wells(rips_instance, initialize_test):
+    case, _ = _load_case(rips_instance)
+
+    # A padding that reaches the connections of P1 from P3: OPM Flow moves P1's connections
+    # into the LGR, so the LGR is made, with a warning
+    case.create_lgr_for_simulation_well(
+        well_name="P3", lateral_refinement="UNIFORM", lateral_padding=8
+    )
+    assert len(case.grids()) == 2
 
 
 def _read_fluxnum(file_name):

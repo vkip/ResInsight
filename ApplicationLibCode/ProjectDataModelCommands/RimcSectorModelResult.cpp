@@ -33,7 +33,7 @@ RimcSectorModelResult::RimcSectorModelResult()
     CAF_PDM_InitScriptableField( &m_deckFile, "DeckFile", QString(), "Deck File", "", "", "The sector deck, with USEFLUX and FLUXREG" );
     CAF_PDM_InitScriptableField( &m_fluxFile, "FluxFile", QString(), "Flux File", "", "", "The boundary data written by make_flux" );
     CAF_PDM_InitScriptableField( &m_fluxnumFile, "FluxnumFile", QString(), "FLUXNUM File", "", "", "The sector as a FLUXNUM region" );
-    CAF_PDM_InitScriptableField( &m_lgrName, "LgrName", QString(), "LGR Name", "", "", "The LGR around the well in the sector deck, if any" );
+    CAF_PDM_InitScriptableField( &m_lgrName, "LgrName", QString(), "LGR Name", "", "", "The LGRs around the well in the sector deck, comma separated, if any" );
     CAF_PDM_InitScriptableField( &m_cellCount, "CellCount", 0, "Cell Count", "", "", "Main grid cells in the sector" );
     CAF_PDM_InitScriptableField( &m_activeCellCount, "ActiveCellCount", 0, "Active Cell Count", "", "", "Active main grid cells in the sector" );
     CAF_PDM_InitScriptableFieldNoDefault( &m_wells, "Wells", "Wells", "", "", "Wells with connections in the sector" );
