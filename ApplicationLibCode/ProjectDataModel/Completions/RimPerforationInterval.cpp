@@ -54,6 +54,13 @@ RimPerforationInterval::RimPerforationInterval()
     CAF_PDM_InitScriptableField( &m_diameter, "Diameter", 0.216, "Diameter" );
     CAF_PDM_InitScriptableField( &m_skinFactor, "SkinFactor", 0.0, "Skin Factor" );
     CAF_PDM_InitScriptableField( &m_completionNumber, "CompletionNumber", 0, "Completion Number" );
+    CAF_PDM_InitScriptableField( &m_perforatedLengthFactor,
+                                 "PerforatedLengthFactor",
+                                 1.0,
+                                 "Perforated Length Factor",
+                                 "",
+                                 "The perforated length in each cell is the length of the well path in the cell times this factor. "
+                                 "Set by 'Create Approximate Well Path' to reproduce the connection factors of the simulation." );
 
     CAF_PDM_InitField( &m_startOfHistory_OBSOLETE, "StartOfHistory", true, "All Timesteps" );
     m_startOfHistory_OBSOLETE.xmlCapability()->setIOWritable( false );
@@ -168,6 +175,22 @@ double RimPerforationInterval::diameter( RiaDefines::EclipseUnitSystem unitSyste
 double RimPerforationInterval::skinFactor() const
 {
     return m_skinFactor();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+double RimPerforationInterval::perforatedLengthFactor() const
+{
+    return m_perforatedLengthFactor();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RimPerforationInterval::setPerforatedLengthFactor( double factor )
+{
+    m_perforatedLengthFactor = factor;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -416,6 +439,7 @@ void RimPerforationInterval::defineUiOrdering( QString uiConfigName, caf::PdmUiO
     uiOrdering.add( &m_diameter );
     uiOrdering.add( &m_skinFactor );
     uiOrdering.add( &m_completionNumber );
+    uiOrdering.add( &m_perforatedLengthFactor );
 
     auto filterGrp = uiOrdering.addNewGroup( "Cell Filter" );
     filterGrp->add( &m_cellFilter );

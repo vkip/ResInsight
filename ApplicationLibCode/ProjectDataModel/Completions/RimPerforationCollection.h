@@ -44,6 +44,7 @@ public:
     bool                                       hasPerforations() const;
     const RimNonDarcyPerforationParameters*    nonDarcyParameters() const;
     void                                       appendPerforation( RimPerforationInterval* perforation );
+    void                                       replacePerforations( const std::vector<RimPerforationInterval*>& perforations );
     std::vector<const RimPerforationInterval*> perforations() const;
     std::vector<RimPerforationInterval*>       perforationsNoConst() const;
     std::vector<const RimPerforationInterval*> activePerforations() const;

@@ -643,6 +643,7 @@ void RiuViewerCommands::displayContextMenu( QMouseEvent* event )
 
                 menuBuilder.addSeparator();
                 menuBuilder << "RicShowContributingWellsFeature";
+                menuBuilder << "RicCreateApproximateWellPathFeature";
                 menuBuilder.addSeparator();
                 menuBuilder << "RicNewSimWellIntersectionFeature";
             }

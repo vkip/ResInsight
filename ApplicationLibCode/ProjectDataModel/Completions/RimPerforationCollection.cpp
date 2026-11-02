@@ -115,6 +115,23 @@ void RimPerforationCollection::appendPerforation( RimPerforationInterval* perfor
 }
 
 //--------------------------------------------------------------------------------------------------
+/// Deletes the current perforations and adds the given ones as they are, updating views once
+//--------------------------------------------------------------------------------------------------
+void RimPerforationCollection::replacePerforations( const std::vector<RimPerforationInterval*>& perforations )
+{
+    m_perforations.deleteChildren();
+    for ( auto* perforation : perforations )
+    {
+        m_perforations.push_back( perforation );
+    }
+
+    updateConnectedEditors();
+
+    RimProject* proj = RimProject::current();
+    proj->reloadCompletionTypeResultsInAllViews();
+}
+
+//--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
 std::vector<const RimPerforationInterval*> RimPerforationCollection::perforations() const

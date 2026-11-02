@@ -304,6 +304,14 @@ void RimWellPathCompletionSettings::setGroupName( const QString& name )
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+void RimWellPathCompletionSettings::setDrainageRadius( std::optional<double> radius )
+{
+    m_drainageRadius = radius;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 void RimWellPathCompletionSettings::setReferenceDepth( std::optional<double> depth )
 {
     m_referenceDepth = depth;

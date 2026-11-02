@@ -11,6 +11,7 @@ set(SOURCE_GROUP_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/RifReaderEclipseInput.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RifReaderEclipseOutput.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RifReaderEclipseWell.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RifRestartWellConnectionReader.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RifSummaryReaderInterface.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RifEclipseUserDataParserTools.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RifColumnBasedUserDataParser.cpp

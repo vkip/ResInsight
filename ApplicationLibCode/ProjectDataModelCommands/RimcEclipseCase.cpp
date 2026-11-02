@@ -18,6 +18,8 @@
 
 #include "RimcEclipseCase.h"
 
+#include "EclipseCommands/EclipseWell/RicApproximateWellPathTools.h"
+
 #include "RiaApplication.h"
 #include "RiaGuiApplication.h"
 #include "RiaKeyValueStoreUtil.h"
@@ -58,6 +60,7 @@
 #include "RimFractureTemplate.h"
 #include "RimMainPlotCollection.h"
 #include "RimOilField.h"
+#include "RimPointBasedWellPath.h"
 #include "RimProject.h"
 #include "RimRoffCase.h"
 #include "RimSaturationPressurePlotCollection.h"
@@ -1071,6 +1074,54 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createLgrForComplet
     }
 
     return nullptr;
+}
+
+CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseCase, RimEclipseCase_createApproximateWellPath, "createApproximateWellPath" );
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RimEclipseCase_createApproximateWellPath::RimEclipseCase_createApproximateWellPath( caf::PdmObjectHandle* self )
+    : caf::PdmObjectCreationMethod( self )
+{
+    CAF_PDM_InitObject( "Create Approximate Well Path",
+                        "",
+                        "",
+                        "Create the well path 'SIM_<well>' through the centres of the cells connected to a simulation well, with a "
+                        "perforation in each connected cell. The diameters, skin factors and the WELSPECS data are taken from the "
+                        "restart file, and the perforated lengths are scaled so that a completion export on the simulation grid "
+                        "gives the simulated connection factors. A previous approximate well path of the well is replaced." );
+
+    CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
+    CAF_PDM_InitScriptableField( &m_timeStep,
+                                 "TimeStep",
+                                 -1,
+                                 "Time Step",
+                                 "",
+                                 "",
+                                 "Zero-based time step of the connections. -1 uses the last time step where the well has connections" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createApproximateWellPath::execute()
+{
+    auto* eclipseCase = self<RimEclipseCase>();
+    if ( !eclipseCase ) return std::unexpected( "No case is available." );
+    if ( m_wellName().isEmpty() ) return std::unexpected( "No well name specified." );
+
+    auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, m_wellName(), m_timeStep() );
+    if ( !wellPath ) return std::unexpected( wellPath.error() );
+    return *wellPath;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RimEclipseCase_createApproximateWellPath::classKeywordReturnedType() const
+{
+    return RimPointBasedWellPath::classKeywordStatic();
 }
 
 CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseCase, RimEclipseCase_createLgrForSimulationWell, "createLgrForSimulationWell" );

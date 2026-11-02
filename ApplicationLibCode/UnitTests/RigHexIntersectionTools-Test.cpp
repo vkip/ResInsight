@@ -97,3 +97,28 @@ TEST( RigHexIntersectionTools, DISABLED_planeHexCellIntersectionPerformanceTest 
 
     qDebug() << "Time total elapsed: " << timeTotal.elapsed() << " intersected: " << static_cast<int>( isCellIntersected );
 }
+
+//--------------------------------------------------------------------------------------------------
+/// Points on the vertical line through the cell centre, where an axis-aligned ray meets the face centres
+//--------------------------------------------------------------------------------------------------
+TEST( RigHexIntersectionTools, isPointInCellOnCentreLine )
+{
+    std::array<cvf::Vec3d, 8> hexCorners = { cvf::Vec3d( 0, 0, 0 ),
+                                             cvf::Vec3d( 10, 0, 0 ),
+                                             cvf::Vec3d( 10, 10, 0 ),
+                                             cvf::Vec3d( 0, 10, 0 ),
+                                             cvf::Vec3d( 0, 0, -4 ),
+                                             cvf::Vec3d( 10, 0, -4 ),
+                                             cvf::Vec3d( 10, 10, -4 ),
+                                             cvf::Vec3d( 0, 10, -4 ) };
+
+    for ( double z : { -0.004, -1.0, -2.0, -3.996 } )
+    {
+        EXPECT_TRUE( RigHexIntersectionTools::isPointInCell( cvf::Vec3d( 5, 5, z ), hexCorners ) ) << z;
+        EXPECT_TRUE( RigHexIntersectionTools::isPointInCell( cvf::Vec3d( 2, 7, z ), hexCorners ) ) << z;
+    }
+    for ( const auto& outside : { cvf::Vec3d( 5, 5, 1 ), cvf::Vec3d( 5, 5, -5 ), cvf::Vec3d( 11, 5, -2 ), cvf::Vec3d( 5, -1, -2 ) } )
+    {
+        EXPECT_FALSE( RigHexIntersectionTools::isPointInCell( outside, hexCorners ) );
+    }
+}

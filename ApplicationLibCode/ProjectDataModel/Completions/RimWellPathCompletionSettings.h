@@ -88,6 +88,7 @@ public:
 
     void setGroupName( const QString& name );
     void setReferenceDepth( std::optional<double> depth );
+    void setDrainageRadius( std::optional<double> radius );
     void setWellType( WellType wellType );
     void setAllowWellCrossFlow( bool allowCrossFlow );
     void setPressureDrop( PressureDropType pressureDropType );

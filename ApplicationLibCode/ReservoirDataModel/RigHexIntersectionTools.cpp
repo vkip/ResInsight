@@ -122,8 +122,11 @@ bool RigHexIntersectionTools::lineIntersectsHexCell( const cvf::Vec3d& p1, const
 //--------------------------------------------------------------------------------------------------
 bool RigHexIntersectionTools::isPointInCell( const cvf::Vec3d& point, const std::array<cvf::Vec3d, 8>& hexCorners )
 {
+    // An oblique ray: one along an axis passes through the face centres, where the four triangles of a face
+    // meet, of cells on the same column as the point, and counts the hit there an even number of times
     cvf::Ray ray;
     ray.setOrigin( point );
+    ray.setDirection( cvf::Vec3d( 0.2113, 0.1397, -0.9674 ).getNormalized() );
     size_t intersections = 0;
 
     for ( int face = 0; face < 6; ++face )

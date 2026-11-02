@@ -56,9 +56,11 @@ public:
     void   setDiameter( double diameter );
     void   setSkinFactor( double skinFactor );
     void   setCompletionNumber( int number );
+    void   setPerforatedLengthFactor( double factor );
     double diameter( RiaDefines::EclipseUnitSystem unitSystem ) const;
     double skinFactor() const;
     int    completionNumber() const;
+    double perforatedLengthFactor() const;
 
     bool isActiveOnDate( const QDateTime& date ) const;
 
@@ -96,6 +98,7 @@ private:
     caf::PdmField<double> m_diameter;
     caf::PdmField<double> m_skinFactor;
     caf::PdmField<int>    m_completionNumber;
+    caf::PdmField<double> m_perforatedLengthFactor;
 
     caf::PdmField<bool>      m_useCustomStartDate;
     caf::PdmField<QDateTime> m_startDate;

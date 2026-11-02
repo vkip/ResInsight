@@ -553,11 +553,13 @@ std::vector<RigCompletionData>
                 double kh               = RigCompletionData::defaultValue();
                 double dFactor          = RigCompletionData::defaultValue();
 
+                const cvf::Vec3d perforatedLengths = cell.intersectionLengthsInCellCS * interval->perforatedLengthFactor();
+
                 {
                     auto transmissibilityData =
                         RicTransmissibilityCalculator::calculateTransmissibilityData( settings.caseToApply,
                                                                                       wellPath,
-                                                                                      cell.intersectionLengthsInCellCS,
+                                                                                      perforatedLengths,
                                                                                       interval->skinFactor(),
                                                                                       interval->diameter( unitSystem ) / 2,
                                                                                       cell.globCellIndex,

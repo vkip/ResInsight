@@ -24,6 +24,7 @@
 #include "RiaFractureDefines.h"
 
 #include "RigCaseCellResultsData.h"
+#include "RigCell.h"
 #include "RigEclipseCaseData.h"
 #include "RigEclipseResultAddress.h"
 #include "RigMainGrid.h"
@@ -77,6 +78,22 @@ struct CellProperties
 };
 
 //--------------------------------------------------------------------------------------------------
+/// Cells of temporary LGRs have no results of their own; they take the properties of their host cell
+//--------------------------------------------------------------------------------------------------
+size_t propertyCellIndex( RimEclipseCase* eclipseCase, size_t globalCellIndex )
+{
+    const RigMainGrid* mainGrid  = eclipseCase->eclipseCaseData()->mainGrid();
+    size_t             cellIndex = globalCellIndex;
+    while ( mainGrid && cellIndex < mainGrid->totalCellCount() )
+    {
+        const RigCell& cell = mainGrid->cell( cellIndex );
+        if ( !cell.hostGrid() || !cell.hostGrid()->isTempGrid() || cell.parentCellIndex() == cvf::UNDEFINED_SIZE_T ) break;
+        cellIndex = cell.parentCellIndex();
+    }
+    return cellIndex;
+}
+
+//--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
 std::optional<CellProperties> loadCellProperties( RimEclipseCase* eclipseCase, size_t globalCellIndex )
@@ -93,13 +110,28 @@ std::optional<CellProperties> loadCellProperties( RimEclipseCase* eclipseCase, s
         return std::nullopt;
     }
 
+    const size_t propertyCell = propertyCellIndex( eclipseCase, globalCellIndex );
+
     CellProperties props;
-    props.dx    = dxAcc->cellScalarGlobIdx( globalCellIndex );
-    props.dy    = dyAcc->cellScalarGlobIdx( globalCellIndex );
-    props.dz    = dzAcc->cellScalarGlobIdx( globalCellIndex );
-    props.permx = permxAcc->cellScalarGlobIdx( globalCellIndex );
-    props.permy = permyAcc->cellScalarGlobIdx( globalCellIndex );
-    props.permz = permzAcc->cellScalarGlobIdx( globalCellIndex );
+    props.permx = permxAcc->cellScalarGlobIdx( propertyCell );
+    props.permy = permyAcc->cellScalarGlobIdx( propertyCell );
+    props.permz = permzAcc->cellScalarGlobIdx( propertyCell );
+
+    if ( propertyCell == globalCellIndex )
+    {
+        props.dx = dxAcc->cellScalarGlobIdx( globalCellIndex );
+        props.dy = dyAcc->cellScalarGlobIdx( globalCellIndex );
+        props.dz = dzAcc->cellScalarGlobIdx( globalCellIndex );
+    }
+    else
+    {
+        // The size of the refined cell, from its geometry
+        using FaceType      = cvf::StructGridInterface::FaceType;
+        const RigCell& cell = eclipseCase->eclipseCaseData()->mainGrid()->cell( globalCellIndex );
+        props.dx            = ( cell.faceCenter( FaceType::POS_I ) - cell.faceCenter( FaceType::NEG_I ) ).length();
+        props.dy            = ( cell.faceCenter( FaceType::POS_J ) - cell.faceCenter( FaceType::NEG_J ) ).length();
+        props.dz            = ( cell.faceCenter( FaceType::POS_K ) - cell.faceCenter( FaceType::NEG_K ) ).length();
+    }
     return props;
 }
 
@@ -109,7 +141,7 @@ std::optional<CellProperties> loadCellProperties( RimEclipseCase* eclipseCase, s
 double loadNtg( RimEclipseCase* eclipseCase, size_t globalCellIndex )
 {
     auto ntgAcc = loadResultAccessor( eclipseCase, "NTG" );
-    if ( ntgAcc.notNull() ) return ntgAcc->cellScalarGlobIdx( globalCellIndex );
+    if ( ntgAcc.notNull() ) return ntgAcc->cellScalarGlobIdx( propertyCellIndex( eclipseCase, globalCellIndex ) );
     return 1.0;
 }
 
@@ -239,7 +271,7 @@ double RicTransmissibilityCalculator::calculateDFactor( RimEclipseCase*         
         auto poroAcc = internal::loadResultAccessor( eclipseCase, "PORO" );
         if ( poroAcc.notNull() )
         {
-            porosity = poroAcc->cellScalar( globalCellIndex );
+            porosity = poroAcc->cellScalarGlobIdx( internal::propertyCellIndex( eclipseCase, globalCellIndex ) );
         }
     }
 

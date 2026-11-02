@@ -313,6 +313,24 @@ private:
 };
 
 //==================================================================================================
+///
+//==================================================================================================
+class RimEclipseCase_createApproximateWellPath : public caf::PdmObjectCreationMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimEclipseCase_createApproximateWellPath( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+
+private:
+    caf::PdmField<QString> m_wellName;
+    caf::PdmField<int>     m_timeStep;
+};
+
+//==================================================================================================
 /// Create a temporary local grid refinement (LGR) around a simulation well, i.e. a well known from the
 /// simulation results only. The lateral refinement is uniform or graded logarithmically away from the well.
 //==================================================================================================
