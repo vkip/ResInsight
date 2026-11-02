@@ -85,3 +85,12 @@ def test_create_approximate_well_path_errors(rips_instance, initialize_test):
 
     with pytest.raises(rips.RipsError, match="out of range"):
         case.create_approximate_well_path(well_name="P3", time_step=1000)
+
+
+def test_select_in_project_tree(rips_instance, initialize_test):
+    case = _load_case(rips_instance)
+
+    # Without a main window (console mode) selecting does nothing, but must succeed
+    simulation_well = [w for w in case.simulation_wells() if w.name == "P3"][0]
+    simulation_well.select()
+    case.create_approximate_well_path(well_name="P3").select()

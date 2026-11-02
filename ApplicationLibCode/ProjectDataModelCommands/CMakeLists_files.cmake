@@ -21,6 +21,7 @@ set(SOURCE_GROUP_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/RimcWellPathGeometryDef.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcModeledWellPath.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcWellPath.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RimcSelectInProjectTree.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcWellPathCollection.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcFractureTemplateCollection.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimcFractureTemplate.cpp
