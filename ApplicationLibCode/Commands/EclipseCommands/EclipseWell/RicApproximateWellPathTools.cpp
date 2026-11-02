@@ -152,6 +152,295 @@ cvf::Vec3d exitFaceCenter( const RigCell& cell, const cvf::Vec3d& direction )
 }
 
 //--------------------------------------------------------------------------------------------------
+/// A short and smooth path through the connected cells, in connection order: straight inside each cell, from
+/// the face where it enters the cell to the face where it leaves it. The path minimises its length plus a penalty on
+/// its bends. Consecutive cells that touch share the
+/// crossing point, which lies on their common face (or the part of it that the cells share across a fault).
+/// Consecutive cells that do not touch get an exit point in the first and an entry point in the second, on the faces
+/// that point most towards the other cell, joined by an unperforated straight line. The first cell is entered through
+/// the face opposite to the next cell, the last cell left through the face opposite to the previous one.
+//--------------------------------------------------------------------------------------------------
+struct FaceRoute
+{
+    std::vector<cvf::Vec3d>                nodes;
+    std::vector<std::pair<size_t, size_t>> cellNodes; // entry and exit node of each cell
+};
+
+FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cells )
+{
+    constexpr double edgeMargin = 0.05; // crossing points are kept this far (in face parameters) from the face edges
+    constexpr int    samples    = 9; // per face direction and refinement pass
+    constexpr int    passes     = 6;
+    constexpr double centring   = 0.02; // weight of the distance to the face centre, which settles otherwise free points
+    constexpr double bending    = 1000.0; // length [m] that a 90 degree bend costs: (1 - cos) of the angle times this
+
+    const std::array<FaceType, 6> allFaces = { FaceType::NEG_I, FaceType::POS_I, FaceType::NEG_J, FaceType::POS_J, FaceType::NEG_K, FaceType::POS_K };
+
+    auto bilinear = []( const std::array<cvf::Vec3d, 4>& c, double u, double v )
+    { return c[0] * ( ( 1 - u ) * ( 1 - v ) ) + c[1] * ( u * ( 1 - v ) ) + c[2] * ( u * v ) + c[3] * ( ( 1 - u ) * v ); };
+
+    // The faces of cell 'from' that point towards 'towards'
+    auto facesTowards = [&]( size_t from, const cvf::Vec3d& towards )
+    {
+        const RigCell&        cell   = mainGrid.cell( from );
+        const cvf::Vec3d      centre = cell.center();
+        std::vector<FaceType> faces;
+        FaceType              best      = FaceType::POS_K;
+        double                bestAlign = -std::numeric_limits<double>::max();
+        cvf::Vec3d            direction = towards - centre;
+        direction.normalize();
+        for ( FaceType face : allFaces )
+        {
+            cvf::Vec3d toFace = cell.faceCenter( face ) - centre;
+            if ( !toFace.normalize() ) continue;
+            const double align = toFace * direction;
+            if ( align > 0.0 ) faces.push_back( face );
+            if ( align > bestAlign )
+            {
+                bestAlign = align;
+                best      = face;
+            }
+        }
+        return std::make_pair( faces, best );
+    };
+
+    struct Candidate
+    {
+        cvf::Vec3d point;
+        FaceType   face;
+        double     u, v;
+    };
+    struct Node
+    {
+        size_t                 cell; // the cell whose faces carry the node
+        std::vector<FaceType>  faces;
+        size_t                 sharedWith = std::numeric_limits<size_t>::max(); // the other cell at a shared face
+        std::vector<Candidate> candidates;
+    };
+
+    auto isShared = [&]( const Node& node, const cvf::Vec3d& point )
+    {
+        if ( node.sharedWith == std::numeric_limits<size_t>::max() ) return true;
+        const cvf::Vec3d inside = point + ( mainGrid.cell( node.sharedWith ).center() - point ) * 0.02;
+        return RigHexIntersectionTools::isPointInCell( inside, mainGrid.cellCornerVertices( node.sharedWith ) );
+    };
+
+    auto sample = [&]( Node& node, FaceType face, double u0, double u1, double v0, double v1 )
+    {
+        const auto corners = mainGrid.cell( node.cell ).faceCorners( face );
+        for ( int a = 0; a < samples; ++a )
+        {
+            for ( int b = 0; b < samples; ++b )
+            {
+                const double u     = u0 + ( u1 - u0 ) * a / ( samples - 1 );
+                const double v     = v0 + ( v1 - v0 ) * b / ( samples - 1 );
+                const auto   point = bilinear( corners, u, v );
+                if ( isShared( node, point ) ) node.candidates.push_back( { point, face, u, v } );
+            }
+        }
+    };
+
+    FaceRoute route;
+    if ( cells.empty() ) return route;
+
+    std::vector<Node> nodes;
+    auto              upperK = [&]( size_t cell, bool upper )
+    {
+        const RigCell& c   = mainGrid.cell( cell );
+        const bool     neg = c.faceCenter( FaceType::NEG_K ).z() > c.faceCenter( FaceType::POS_K ).z();
+        return ( neg == upper ) ? FaceType::NEG_K : FaceType::POS_K;
+    };
+
+    // Entry of the first cell
+    {
+        const FaceType face =
+            cells.size() > 1 ? facesTowards( cells[0], mainGrid.cell( cells[0] ).center() * 2.0 - mainGrid.cell( cells[1] ).center() ).second
+                             : upperK( cells[0], true );
+        nodes.push_back( { cells[0], { face } } );
+    }
+    route.cellNodes.assign( cells.size(), { 0, 0 } );
+    for ( size_t c = 0; c + 1 < cells.size(); ++c )
+    {
+        Node shared{ cells[c], facesTowards( cells[c], mainGrid.cell( cells[c + 1] ).center() ).first, cells[c + 1] };
+        for ( FaceType face : shared.faces )
+        {
+            sample( shared, face, edgeMargin, 1.0 - edgeMargin, edgeMargin, 1.0 - edgeMargin );
+        }
+        route.cellNodes[c].second = nodes.size();
+        if ( !shared.candidates.empty() )
+        {
+            route.cellNodes[c + 1].first = nodes.size();
+            nodes.push_back( shared );
+        }
+        else
+        {
+            nodes.push_back( { cells[c], { facesTowards( cells[c], mainGrid.cell( cells[c + 1] ).center() ).second } } );
+            route.cellNodes[c + 1].first = nodes.size();
+            nodes.push_back( { cells[c + 1], { facesTowards( cells[c + 1], mainGrid.cell( cells[c] ).center() ).second } } );
+        }
+    }
+    // Exit of the last cell
+    {
+        const size_t   last = cells.back();
+        const FaceType face =
+            cells.size() > 1
+                ? facesTowards( last, mainGrid.cell( last ).center() * 2.0 - mainGrid.cell( cells[cells.size() - 2] ).center() ).second
+                : upperK( last, false );
+        route.cellNodes.back().second = nodes.size();
+        nodes.push_back( { last, { face } } );
+    }
+    for ( auto& node : nodes )
+    {
+        if ( node.candidates.empty() )
+        {
+            for ( FaceType face : node.faces )
+            {
+                sample( node, face, edgeMargin, 1.0 - edgeMargin, edgeMargin, 1.0 - edgeMargin );
+            }
+        }
+    }
+
+    // The cell that the segment ending at each node runs through, if any (not between cells that do not touch)
+    std::vector<std::optional<std::array<cvf::Vec3d, 8>>> segmentCell( nodes.size() );
+    for ( size_t c = 0; c < cells.size(); ++c )
+    {
+        const auto [entry, exit] = route.cellNodes[c];
+        if ( exit == entry + 1 ) segmentCell[exit] = mainGrid.cellCornerVertices( cells[c] );
+    }
+    // A segment between points on the faces of a cell must not leave it, which it can through the curved faces of thin
+    // cells at grazing angles
+    auto staysInCell = [&]( size_t node, const cvf::Vec3d& from, const cvf::Vec3d& to )
+    {
+        if ( !segmentCell[node] ) return true;
+        for ( double t : faceCrossings( from, to, *segmentCell[node] ) )
+        {
+            if ( t > 0.002 && t < 0.998 ) return false;
+        }
+        return true;
+    };
+
+    // The best path over the candidates by dynamic programming over pairs of consecutive points, refined around the
+    // chosen points in later passes. Besides the length, bends are penalised, so that the path keeps its direction
+    // where the cells leave it free, e.g. between connections that do not touch.
+    constexpr double maxCost = std::numeric_limits<double>::max();
+    auto             bend    = []( const cvf::Vec3d& a, const cvf::Vec3d& b, const cvf::Vec3d& c )
+    {
+        cvf::Vec3d in  = b - a;
+        cvf::Vec3d out = c - b;
+        if ( !in.normalize() || !out.normalize() ) return 0.0;
+        return 1.0 - in * out;
+    };
+    std::vector<size_t> chosen( nodes.size(), 0 );
+    double              halfWidth = ( 1.0 - 2.0 * edgeMargin ) / ( samples - 1 );
+    for ( int pass = 0; pass < passes; ++pass )
+    {
+        auto centreCost = [&]( size_t n, size_t a )
+        {
+            const auto& candidate = nodes[n].candidates[a];
+            return centring * ( candidate.point - mainGrid.cell( nodes[n].cell ).faceCenter( candidate.face ) ).length();
+        };
+
+        // cost[n][a][b]: the best path ending with candidate b of node n-1 and candidate a of node n
+        std::vector<std::vector<std::vector<double>>> cost( nodes.size() );
+        std::vector<std::vector<std::vector<size_t>>> from( nodes.size() );
+        for ( size_t n = 1; n < nodes.size(); ++n )
+        {
+            const auto& current  = nodes[n].candidates;
+            const auto& previous = nodes[n - 1].candidates;
+            cost[n].assign( current.size(), std::vector<double>( previous.size(), maxCost ) );
+            from[n].assign( current.size(), std::vector<size_t>( previous.size(), 0 ) );
+
+            std::vector<std::vector<char>> allowed( current.size(), std::vector<char>( previous.size(), 1 ) );
+            bool                           anyAllowed = false;
+            for ( size_t a = 0; a < current.size(); ++a )
+            {
+                for ( size_t b = 0; b < previous.size(); ++b )
+                {
+                    allowed[a][b] = staysInCell( n, previous[b].point, current[a].point );
+                    anyAllowed    = anyAllowed || allowed[a][b];
+                }
+            }
+            // No segment stays in the cell: take the best ones anyway
+            if ( !anyAllowed )
+            {
+                for ( auto& row : allowed )
+                {
+                    std::fill( row.begin(), row.end(), 1 );
+                }
+            }
+
+            for ( size_t a = 0; a < current.size(); ++a )
+            {
+                const double centre = centreCost( n, a );
+                for ( size_t b = 0; b < previous.size(); ++b )
+                {
+                    if ( !allowed[a][b] ) continue;
+                    const double segment = ( current[a].point - previous[b].point ).length() + centre;
+                    if ( n == 1 )
+                    {
+                        cost[n][a][b] = centreCost( 0, b ) + segment;
+                        continue;
+                    }
+                    for ( size_t c = 0; c < nodes[n - 2].candidates.size(); ++c )
+                    {
+                        if ( cost[n - 1][b][c] == maxCost ) continue;
+                        const double total = cost[n - 1][b][c] + segment +
+                                             bending * bend( nodes[n - 2].candidates[c].point, previous[b].point, current[a].point );
+                        if ( total < cost[n][a][b] )
+                        {
+                            cost[n][a][b] = total;
+                            from[n][a][b] = c;
+                        }
+                    }
+                }
+            }
+        }
+        if ( nodes.size() > 1 )
+        {
+            const size_t last = nodes.size() - 1;
+            double       best = maxCost;
+            for ( size_t a = 0; a < cost[last].size(); ++a )
+            {
+                for ( size_t b = 0; b < cost[last][a].size(); ++b )
+                {
+                    if ( cost[last][a][b] < best )
+                    {
+                        best             = cost[last][a][b];
+                        chosen[last]     = a;
+                        chosen[last - 1] = b;
+                    }
+                }
+            }
+            for ( size_t n = last; n > 1; --n )
+            {
+                chosen[n - 2] = from[n][chosen[n]][chosen[n - 1]];
+            }
+        }
+        if ( pass + 1 == passes ) break;
+
+        for ( size_t n = 0; n < nodes.size(); ++n )
+        {
+            const Candidate best = nodes[n].candidates[chosen[n]];
+            nodes[n].candidates.clear();
+            sample( nodes[n],
+                    best.face,
+                    std::max( edgeMargin, best.u - halfWidth ),
+                    std::min( 1.0 - edgeMargin, best.u + halfWidth ),
+                    std::max( edgeMargin, best.v - halfWidth ),
+                    std::min( 1.0 - edgeMargin, best.v + halfWidth ) );
+            nodes[n].candidates.push_back( best );
+        }
+        halfWidth *= 2.0 / ( samples - 1 );
+    }
+
+    for ( size_t n = 0; n < nodes.size(); ++n )
+    {
+        route.nodes.push_back( nodes[n].candidates[chosen[n]].point );
+    }
+    return route;
+}
+
+//--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
 RimWellPathCompletionSettings::WellType wellType( const WellData& well )
@@ -208,8 +497,10 @@ QString RicApproximateWellPathTools::wellPathName( const QString& simulationWell
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<RimWellPath*, QString>
-    RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep )
+std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase,
+                                                                                             const QString&  simulationWellName,
+                                                                                             int             timeStep,
+                                                                                             bool            throughCellFaces )
 {
     if ( !eclipseCase || !eclipseCase->eclipseCaseData() || !eclipseCase->eclipseCaseData()->mainGrid() )
     {
@@ -325,13 +616,42 @@ std::expected<RimWellPath*, QString>
     points.emplace_back( headTop.x(), headTop.y(), std::max( 0.0, headTop.z() + 1.0 ) );
     points.push_back( headTop );
 
-    std::vector<size_t> centerPointIndices;
-    for ( const auto& connectionCell : connectionCells )
+    std::vector<size_t>                    centerPointIndices;
+    std::vector<std::pair<size_t, size_t>> cellPointIndices; // entry and exit point of each cell, through cell faces
+    if ( throughCellFaces )
     {
-        centerPointIndices.push_back( points.size() );
-        points.push_back( mainGrid.cell( connectionCell.cellIndex ).center() );
+        std::vector<size_t> cells;
+        for ( const auto& connectionCell : connectionCells )
+        {
+            cells.push_back( connectionCell.cellIndex );
+        }
+        const FaceRoute route = faceRoute( mainGrid, cells );
+
+        // Straight down to the first cell when the well head is above it
+        const auto headIjk  = mainGrid.ijkFromCellIndex( headCell );
+        const auto firstIjk = mainGrid.ijkFromCellIndex( cells.front() );
+        if ( headIjk && firstIjk && headIjk->i() == firstIjk->i() && headIjk->j() == firstIjk->j() )
+        {
+            const cvf::Vec3d& entry = route.nodes.front();
+            points                  = { cvf::Vec3d( entry.x(), entry.y(), std::max( 0.0, headTop.z() + 1.0 ) ) };
+        }
+        const size_t offset = points.size();
+        points.insert( points.end(), route.nodes.begin(), route.nodes.end() );
+        for ( const auto& [entry, exit] : route.cellNodes )
+        {
+            cellPointIndices.emplace_back( offset + entry, offset + exit );
+        }
+        // A little beyond the exit of the last cell
+        cvf::Vec3d direction = points.back() - points[points.size() - 2];
+        if ( direction.normalize() ) points.push_back( points.back() + direction );
     }
+    else
     {
+        for ( const auto& connectionCell : connectionCells )
+        {
+            centerPointIndices.push_back( points.size() );
+            points.push_back( mainGrid.cell( connectionCell.cellIndex ).center() );
+        }
         const RigCell& last = mainGrid.cell( connectionCells.back().cellIndex );
         points.push_back( exitFaceCenter( last, points.back() - points[points.size() - 2] ) );
     }
@@ -375,9 +695,14 @@ std::expected<RimWellPath*, QString>
     double                               minFactor = std::numeric_limits<double>::max();
     double                               maxFactor = 0.0;
     int                                  shutCount = 0;
-    // The path in each connected cell: from the last face crossing before the centre to the first one after it
+    // The path in each connected cell: between its entry and exit points through the cell faces, or else from the last
+    // face crossing before the centre to the first one after it
     std::vector<std::pair<double, double>> pathInCell;
-    for ( size_t c = 0; c < connectionCells.size(); ++c )
+    for ( size_t c = 0; c < connectionCells.size() && throughCellFaces; ++c )
+    {
+        pathInCell.emplace_back( mds[cellPointIndices[c].first], mds[cellPointIndices[c].second] );
+    }
+    for ( size_t c = 0; c < connectionCells.size() && !throughCellFaces; ++c )
     {
         const size_t centre  = centerPointIndices[c];
         const auto   corners = mainGrid.cellCornerVertices( connectionCells[c].cellIndex );
@@ -453,7 +778,8 @@ std::expected<RimWellPath*, QString>
                 .connectionFactor();
         };
 
-        double unscaled = 0.0;
+        double                                 unscaled = 0.0;
+        std::vector<std::pair<double, double>> piecesInCell; // the perforated parts, through cell faces
         if ( !hasLgrs )
         {
             const auto [clippedPoints, clippedMds] = geometry->clippedPointSubset( startMd, endMd );
@@ -464,11 +790,44 @@ std::expected<RimWellPath*, QString>
                 if ( intersection.globCellIndex == cellIndex )
                 {
                     unscaled += transmissibility( intersection.intersectionLengthsInCellCS );
+                    if ( !piecesInCell.empty() && intersection.startMD - piecesInCell.back().second < 1.0e-6 )
+                    {
+                        piecesInCell.back().second = intersection.endMD;
+                    }
+                    else
+                    {
+                        piecesInCell.emplace_back( intersection.startMD, intersection.endMD );
+                    }
                 }
                 else
                 {
                     otherCells.insert( intersection.globCellIndex );
                 }
+            }
+            // Through cell faces, parts of the path outside the cell are left unperforated
+            if ( throughCellFaces && !otherCells.empty() && !piecesInCell.empty() )
+            {
+                otherCells.clear();
+                unscaled = 0.0;
+                for ( auto& [pieceStart, pieceEnd] : piecesInCell )
+                {
+                    const double pieceMargin = 1.0e-3 * ( pieceEnd - pieceStart );
+                    pieceStart += pieceMargin;
+                    pieceEnd -= pieceMargin;
+                    const auto [piecePoints, pieceMds] = geometry->clippedPointSubset( pieceStart, pieceEnd );
+                    for ( const auto& intersection :
+                          RigWellPathIntersectionTools::findCellIntersectionInfosAlongPath( caseData, name, piecePoints, pieceMds ) )
+                    {
+                        if ( intersection.globCellIndex == cellIndex )
+                        {
+                            unscaled += transmissibility( intersection.intersectionLengthsInCellCS );
+                        }
+                    }
+                }
+            }
+            else
+            {
+                piecesInCell.clear();
             }
             if ( !otherCells.empty() )
             {
@@ -504,7 +863,22 @@ std::expected<RimWellPath*, QString>
         minFactor = std::min( minFactor, factor );
         maxFactor = std::max( maxFactor, factor );
 
-        perforations.push_back( perforation );
+        if ( piecesInCell.empty() )
+        {
+            perforations.push_back( perforation );
+            continue;
+        }
+        for ( const auto& [pieceStart, pieceEnd] : piecesInCell )
+        {
+            auto* piece = new RimPerforationInterval();
+            piece->setStartAndEndMD( pieceStart, pieceEnd );
+            piece->setDiameter( diameter );
+            piece->setSkinFactor( connection.skinFactor );
+            piece->setCheckState( connection.isOpen );
+            piece->setPerforatedLengthFactor( factor );
+            perforations.push_back( piece );
+        }
+        delete perforation;
     }
 
     wellPath->perforationIntervalCollection()->replacePerforations( perforations );

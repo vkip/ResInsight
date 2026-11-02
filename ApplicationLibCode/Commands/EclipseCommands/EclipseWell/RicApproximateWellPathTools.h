@@ -41,8 +41,10 @@ namespace RicApproximateWellPathTools
 QString wellPathName( const QString& simulationWellName );
 
 // Time step of the connections, or the last time step with connections if negative. A previous approximate
-// well path of the well is replaced.
-std::expected<RimWellPath*, QString> createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep );
+// well path of the well is replaced. With throughCellFaces (experimental), the path is instead the shortest one
+// that passes the connected cells in order through their shared faces, straight inside each cell.
+std::expected<RimWellPath*, QString>
+    createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep, bool throughCellFaces = false );
 
 // The time step of the well's view if the well has connections then, else -1
 int viewTimeStepWithConnections( const RimSimWellInView& simWell );

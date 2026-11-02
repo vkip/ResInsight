@@ -1106,6 +1106,14 @@ RimEclipseCase_createApproximateWellPath::RimEclipseCase_createApproximateWellPa
                                  "",
                                  "",
                                  "Zero-based time step of the connections. -1 uses the last time step where the well has connections" );
+    CAF_PDM_InitScriptableField( &m_throughCellFaces,
+                                 "ThroughCellFaces",
+                                 false,
+                                 "Through Cell Faces",
+                                 "",
+                                 "",
+                                 "Experimental: instead of through the cell centres, make the path the shortest one that passes the "
+                                 "connected cells in order through their shared faces, straight inside each cell" );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1117,7 +1125,7 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createApproximateWe
     if ( !eclipseCase ) return std::unexpected( "No case is available." );
     if ( m_wellName().isEmpty() ) return std::unexpected( "No well name specified." );
 
-    auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, m_wellName(), m_timeStep() );
+    auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, m_wellName(), m_timeStep(), m_throughCellFaces() );
     if ( !wellPath ) return std::unexpected( wellPath.error() );
     return *wellPath;
 }
