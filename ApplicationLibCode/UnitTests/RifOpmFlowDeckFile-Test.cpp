@@ -13,11 +13,13 @@
 
 #include "cvfStructGrid.h"
 
+#include "opm/input/eclipse/Deck/Deck.hpp"
 #include "opm/input/eclipse/Deck/DeckItem.hpp"
 #include "opm/input/eclipse/Deck/DeckKeyword.hpp"
 #include "opm/input/eclipse/Deck/DeckRecord.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/B.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/C.hpp"
+#include "opm/input/eclipse/Parser/ParserKeywords/P.hpp"
 #include "opm/input/eclipse/Parser/ParserKeywords/W.hpp"
 
 #include <QDebug>
@@ -466,6 +468,44 @@ TEST( RifOpmFlowDeckFileTest, BcpropKeyword )
 
     // Verify component
     EXPECT_TRUE( content.contains( "WATER" ) ) << "Component WATER not found";
+}
+
+//--------------------------------------------------------------------------------------------------
+/// A file included from outside the deck folder must not be written relative to the output
+/// folder: for an output folder next to the deck folder, that is the input file itself.
+//--------------------------------------------------------------------------------------------------
+TEST( RifOpmFlowDeckFileTest, SaveDeckKeepsIncludesOutsideDeckFolder )
+{
+    QTemporaryDir tempDir;
+    ASSERT_TRUE( tempDir.isValid() );
+    QDir root( tempDir.path() );
+    ASSERT_TRUE( root.mkpath( "include" ) && root.mkpath( "input" ) && root.mkpath( "output" ) );
+
+    const QString includeText = "PORO\n 8*0.25 /\n";
+    auto          writeFile   = []( const QString& path, const QString& text )
+    {
+        QFile file( path );
+        ASSERT_TRUE( file.open( QIODevice::WriteOnly | QIODevice::Text ) );
+        file.write( text.toUtf8() );
+    };
+    writeFile( root.filePath( "include/poro.inc" ), includeText );
+    writeFile( root.filePath( "input/CASE.DATA" ),
+               "RUNSPEC\nDIMENS\n 2 2 2 /\nOIL\nGRID\nDX\n 8*10 /\nDY\n 8*10 /\nDZ\n 8*1 /\nTOPS\n 4*1000 /\n"
+               "INCLUDE\n '../include/poro.inc' /\nPROPS\n" );
+
+    RifOpmFlowDeckFile deckFile;
+    ASSERT_TRUE( deckFile.loadDeck( root.filePath( "input/CASE.DATA" ).toStdString() ).has_value() );
+    ASSERT_TRUE( deckFile.replaceKeyword( "PORO", std::vector<double>( 8, 0.1 ), true ) );
+    ASSERT_TRUE( deckFile.saveDeck( root.filePath( "output" ).toStdString(), "CASE.DATA" ) );
+
+    QFile include( root.filePath( "include/poro.inc" ) );
+    ASSERT_TRUE( include.open( QIODevice::ReadOnly | QIODevice::Text ) );
+    EXPECT_EQ( includeText, QString::fromUtf8( include.readAll() ) );
+
+    RifOpmFlowDeckFile savedDeck;
+    ASSERT_TRUE( savedDeck.loadDeck( root.filePath( "output/CASE.DATA" ).toStdString() ).has_value() );
+    const auto& poro = savedDeck.deck()->get<Opm::ParserKeywords::PORO>().back();
+    EXPECT_DOUBLE_EQ( 0.1, poro.getRecord( 0 ).getItem( 0 ).getSIDouble( 0 ) );
 }
 
 //--------------------------------------------------------------------------------------------------

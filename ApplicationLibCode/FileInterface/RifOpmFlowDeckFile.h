@@ -114,7 +114,8 @@ public:
     bool removeKeywordAtIndex( const Opm::FileDeck::Index& index );
 
 private:
-    void splitDatesIfNecessary();
+    void                       splitDatesIfNecessary();
+    std::optional<std::string> fileOutsideDeckFolder() const;
 
 private:
     std::unique_ptr<Opm::Deck>     m_deck;

@@ -43,9 +43,11 @@
 
 #include <cmath>
 #include <expected>
+#include <filesystem>
 #include <format>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace internal
 {
@@ -334,6 +336,18 @@ bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename )
 {
     if ( m_fileDeck.get() != nullptr )
     {
+        // FileDeck writes each included file at its path relative to the input deck folder, below
+        // the output folder. A file outside the input folder (e.g. '../include/x' or reached
+        // through a symbolic link) would then be written outside the output folder, possibly
+        // overwriting the input file itself, so such decks are written as a single file.
+        if ( auto outsideFile = fileOutsideDeckFolder(); outsideFile.has_value() )
+        {
+            RiaLogging::warning( std::format( "The deck includes '{}', which is outside the deck folder. "
+                                              "The deck is saved as a single file to keep the input files unchanged.",
+                                              *outsideFile ) );
+            return saveDeckInline( folder, filename );
+        }
+
         try
         {
             m_fileDeck->dump( folder, filename, Opm::FileDeck::OutputMode::COPY );
@@ -345,6 +359,32 @@ bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename )
         }
     }
     return false;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// The first file of the deck that is not inside the folder of the DATA file, after resolving
+/// symbolic links
+//--------------------------------------------------------------------------------------------------
+std::optional<std::string> RifOpmFlowDeckFile::fileOutsideDeckFolder() const
+{
+    if ( !m_deck ) return std::nullopt;
+
+    namespace fs = std::filesystem;
+
+    std::error_code ec;
+    const auto      inputPath   = m_deck->getInputPath().empty() ? fs::current_path() : fs::path( m_deck->getInputPath() );
+    const auto      inputFolder = fs::weakly_canonical( fs::absolute( inputPath ), ec );
+
+    std::set<std::string> checkedFiles;
+    for ( size_t i = 0; i < m_deck->size(); ++i )
+    {
+        const auto& fileName = ( *m_deck )[i].location().filename;
+        if ( fileName.empty() || !checkedFiles.insert( fileName ).second ) continue;
+
+        const auto relativePath = fs::weakly_canonical( fs::absolute( fileName ), ec ).lexically_relative( inputFolder );
+        if ( relativePath.empty() || relativePath.is_absolute() || *relativePath.begin() == ".." ) return fileName;
+    }
+    return std::nullopt;
 }
 
 //--------------------------------------------------------------------------------------------------
