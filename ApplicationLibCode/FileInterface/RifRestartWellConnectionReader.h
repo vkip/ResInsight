@@ -29,7 +29,8 @@
 //==================================================================================================
 ///
 /// The well and connection data of a restart file at one report step, i.e. what WELSPECS and COMPDAT
-/// defined, from the arrays IWEL, SWEL, ZWEL, ICON, SCON and ZGRP of the global grid.
+/// defined, from the arrays IWEL, SWEL, ZWEL, ICON, SCON and ZGRP of the global grid, and for multi-segment
+/// wells what WELSEGS, COMPSEGS and the device keywords (WSEGVALV, WSEGSICD, WSEGAICD) defined, from ISEG and RSEG.
 ///
 //==================================================================================================
 namespace RifRestartWellConnectionReader
@@ -47,6 +48,42 @@ struct Connection
     double kh               = 0.0;
     double skinFactor       = 0.0;
     int    completionNumber = 0;
+
+    // Multi-segment wells: the segment of the connection, and where the connection starts and ends along the tubing
+    // (COMPSEGS)
+    int    segment      = 0;
+    double segmentStart = 0.0;
+    double segmentEnd   = 0.0;
+};
+
+struct Segment
+{
+    enum class Type
+    {
+        REGULAR,
+        VALVE, // WSEGVALV
+        SPIRAL_ICD, // WSEGSICD
+        AUTO_ICD, // WSEGAICD
+        OTHER
+    };
+
+    int    number    = 0; // One-based
+    int    outlet    = 0; // Zero for the top segment
+    int    branch    = 0;
+    Type   type      = Type::REGULAR;
+    double length    = 0.0; // Along the tubing from the reference, at the segment node
+    double depth     = 0.0; // Of the segment node
+    double diameter  = 0.0;
+    double roughness = 0.0;
+    double area      = 0.0;
+    double volume    = 0.0;
+
+    // Devices
+    double valveFlowCoefficient = 0.0;
+    double valveArea            = 0.0;
+    double valveMaxArea         = 0.0;
+    double valveLength          = 0.0;
+    double deviceStrength       = 0.0; // AICD/SICD base strength
 };
 
 struct Well
@@ -65,6 +102,10 @@ struct Well
     std::optional<double> drainageRadius;
 
     std::vector<Connection> connections;
+
+    // Multi-segment wells, in segment number order. Pressure drop: 0: HFA, 1: HF-, 2: H--
+    std::vector<Segment> segments;
+    int                  pressureDropModel = 0;
 };
 
 // Restart files next to the grid file: the unified restart file, or else the separate ones

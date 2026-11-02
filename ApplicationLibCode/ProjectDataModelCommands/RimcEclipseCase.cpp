@@ -1094,7 +1094,9 @@ RimEclipseCase_createApproximateWellPath::RimEclipseCase_createApproximateWellPa
                         "",
                         "",
                         "Create the well path 'SIM_<well>' through the cells connected to a simulation well, straight in each cell "
-                        "and through the common faces of consecutive cells, with a perforation in each connected cell. The diameters, skin "
+                        "and through the common faces of consecutive cells, with a perforation in each connected cell. For multi-segment "
+                        "wells, the "
+                        "segment data (tubing, connection intervals, valves) is reconstructed too. The diameters, skin "
                         "factors and the WELSPECS data are taken from the "
                         "restart file, and the perforated lengths are scaled so that a completion export on the simulation grid "
                         "gives the simulated connection factors. A previous approximate well path of the well is replaced." );
@@ -1107,6 +1109,14 @@ RimEclipseCase_createApproximateWellPath::RimEclipseCase_createApproximateWellPa
                                  "",
                                  "",
                                  "Zero-based time step of the connections. -1 uses the last time step where the well has connections" );
+    CAF_PDM_InitScriptableField( &m_useMultiSegmentData,
+                                 "UseMultiSegmentData",
+                                 true,
+                                 "Use Multi-Segment Data",
+                                 "",
+                                 "",
+                                 "For multi-segment wells, use the segment data of the restart file for the path and its measured depths, "
+                                 "and set up the multi-segment settings and valves of the well path" );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -1118,7 +1128,7 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_createApproximateWe
     if ( !eclipseCase ) return std::unexpected( "No case is available." );
     if ( m_wellName().isEmpty() ) return std::unexpected( "No well name specified." );
 
-    auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, m_wellName(), m_timeStep() );
+    auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, m_wellName(), m_timeStep(), m_useMultiSegmentData() );
     if ( !wellPath ) return std::unexpected( wellPath.error() );
     return *wellPath;
 }

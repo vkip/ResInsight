@@ -21,6 +21,7 @@
 #include "opm/io/eclipse/ERst.hpp"
 #include "opm/output/eclipse/VectorItems/connection.hpp"
 #include "opm/output/eclipse/VectorItems/intehead.hpp"
+#include "opm/output/eclipse/VectorItems/msw.hpp"
 #include "opm/output/eclipse/VectorItems/well.hpp"
 
 #include <QDir>
@@ -70,6 +71,26 @@ std::vector<RifRestartWellConnectionReader::Well> wellsOfReportStep( Opm::EclIO:
     const auto  noFloats       = std::vector<float>{};
     const auto& icon           = hasConnections ? rst.getRestartData<int>( "ICON", step ) : noInts;
     const auto& scon           = hasConnections ? rst.getRestartData<float>( "SCON", step ) : noFloats;
+
+    const bool  hasSegments = rst.hasArray( "ISEG", step ) && rst.hasArray( "RSEG", step );
+    const auto& iseg        = hasSegments ? rst.getRestartData<int>( "ISEG", step ) : noInts;
+    // RSEG is written in double precision, but accept single precision too
+    std::vector<double> rseg;
+    if ( hasSegments )
+    {
+        try
+        {
+            rseg = rst.getRestartData<double>( "RSEG", step );
+        }
+        catch ( const std::exception& )
+        {
+            const auto& values = rst.getRestartData<float>( "RSEG", step );
+            rseg.assign( values.begin(), values.end() );
+        }
+    }
+    const int nsegmx = inteHead[VI::intehead::NSEGMX];
+    const int nisegz = inteHead[VI::intehead::NISEGZ];
+    const int nrsegz = inteHead[VI::intehead::NRSEGZ];
 
     const auto  noStrings = std::vector<std::string>{};
     const auto& zgrp      = rst.hasArray( "ZGRP", step ) ? rst.getRestartData<std::string>( "ZGRP", step ) : noStrings;
@@ -131,8 +152,71 @@ std::vector<RifRestartWellConnectionReader::Well> wellsOfReportStep( Opm::EclIO:
             connection.diameter         = sc[VI::SConn::Diameter];
             connection.kh               = sc[VI::SConn::EffectiveKH];
             connection.skinFactor       = sc[VI::SConn::SkinFactor];
+            connection.segment          = niconz > static_cast<int>( VI::IConn::Segment ) ? ic[VI::IConn::Segment] : 0;
+            if ( connection.segment > 0 && nsconz > static_cast<int>( VI::SConn::SegDistStart ) )
+            {
+                connection.segmentStart = sc[VI::SConn::SegDistStart];
+                connection.segmentEnd   = sc[VI::SConn::SegDistEnd];
+            }
 
             well.connections.push_back( connection );
+        }
+
+        const int mswIndex = iw[VI::IWell::MsWID] - 1;
+        if ( mswIndex >= 0 && hasSegments && nsegmx > 0 )
+        {
+            well.pressureDropModel = niwelz > static_cast<int>( VI::IWell::MSW_PlossMod ) ? iw[VI::IWell::MSW_PlossMod] : 0;
+            const int segmentCount = std::min( iw[VI::IWell::NWseg], nsegmx );
+            for ( int slot = 0; slot < segmentCount; ++slot )
+            {
+                const size_t iOffset = ( static_cast<size_t>( mswIndex ) * nsegmx + slot ) * nisegz;
+                const size_t rOffset = ( static_cast<size_t>( mswIndex ) * nsegmx + slot ) * nrsegz;
+                if ( iOffset + static_cast<size_t>( nisegz ) > iseg.size() || rOffset + static_cast<size_t>( nrsegz ) > rseg.size() ) break;
+
+                const int*    is = iseg.data() + iOffset;
+                const double* rs = rseg.data() + rOffset;
+
+                using Segment = RifRestartWellConnectionReader::Segment;
+                Segment segment;
+                segment.number    = slot + 1;
+                segment.outlet    = is[VI::ISeg::OutSeg];
+                segment.branch    = is[VI::ISeg::BranchNo];
+                segment.length    = rs[VI::RSeg::DistBHPRef];
+                segment.depth     = rs[VI::RSeg::SegNodeDepth];
+                segment.diameter  = rs[VI::RSeg::SegDiam];
+                segment.roughness = rs[VI::RSeg::SegRough];
+                segment.area      = rs[VI::RSeg::SegArea];
+                segment.volume    = rs[VI::RSeg::SegVolume];
+                switch ( is[VI::ISeg::SegmentType] )
+                {
+                    case VI::ISeg::Value::Regular:
+                        segment.type = Segment::Type::REGULAR;
+                        break;
+                    case VI::ISeg::Value::Valve:
+                        segment.type = Segment::Type::VALVE;
+                        break;
+                    case VI::ISeg::Value::SpiralICD:
+                        segment.type = Segment::Type::SPIRAL_ICD;
+                        break;
+                    case VI::ISeg::Value::AutoICD:
+                        segment.type = Segment::Type::AUTO_ICD;
+                        break;
+                    default:
+                        segment.type = Segment::Type::OTHER;
+                }
+                if ( segment.type == Segment::Type::VALVE )
+                {
+                    segment.valveFlowCoefficient = rs[VI::RSeg::ValveFlowCoeff];
+                    segment.valveArea            = rs[VI::RSeg::ValveArea];
+                    segment.valveMaxArea         = rs[VI::RSeg::ValveMaxArea];
+                    segment.valveLength          = rs[VI::RSeg::ValveLength];
+                }
+                else if ( segment.type == Segment::Type::SPIRAL_ICD || segment.type == Segment::Type::AUTO_ICD )
+                {
+                    segment.deviceStrength = rs[VI::RSeg::DeviceBaseStrength];
+                }
+                well.segments.push_back( segment );
+            }
         }
 
         wells.push_back( well );

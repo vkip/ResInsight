@@ -8,9 +8,13 @@ import pytest
 sys.path.insert(1, os.path.join(sys.path[0], "../../"))
 import dataroot
 import rips
-from rips.generated.generated_classes import Perforation
+from rips.generated.generated_classes import Perforation, WellPathValve
 
 CASE_PATH = dataroot.PATH + "/flux_sector_model/SECTOR_TEST.EGRID"
+MSW_CASE_PATH = (
+    dataroot.PATH
+    + "/../ApplicationLibCode/UnitTests/TestData/RifRestartWellConnectionReader/MSW_ICD.EGRID"
+)
 
 # Connection factors of well P3 in the restart file at the last time step
 P3_CONNECTION_FACTORS = {
@@ -75,6 +79,67 @@ def test_create_approximate_well_path(rips_instance, initialize_test):
     case.create_approximate_well_path(well_name="P3")
     names = [w.name for w in rips_instance.project.well_paths()]
     assert names.count("SIM_P3") == 1
+
+
+def _keyword_rows(folder, keyword):
+    rows = []
+    for file_name in glob.glob(os.path.join(folder, "*")):
+        current = None
+        with open(file_name) as f:
+            for line in f:
+                text = line.split("--")[0].strip()
+                if not text:
+                    continue
+                if text.isupper() and text.isalpha():
+                    current = text
+                    continue
+                if current == keyword and not text.startswith("/"):
+                    rows.append(text.replace("'", "").replace("/", "").split())
+    return rows
+
+
+def _reconstructed_valves(well_path):
+    return [valve for valve in well_path.descendants(WellPathValve) if valve.name]
+
+
+def test_create_approximate_well_path_multi_segment(rips_instance, initialize_test):
+    # A horizontal multi-segment well with two valves (WSEGVALV), the last two connections on valve segments
+    case = rips_instance.project.load_case(path=MSW_CASE_PATH)
+    case.create_view()
+
+    well_path = case.create_approximate_well_path(well_name="P1")
+    perforations = sorted(
+        well_path.descendants(Perforation), key=lambda p: p.start_measured_depth
+    )
+    assert len(perforations) == 3
+    # The measured depths are those along the tubing (COMPSEGS)
+    for perforation, (start, end) in zip(
+        perforations, ((2100, 2200), (2200, 2300), (2300, 2400))
+    ):
+        assert perforation.start_measured_depth == pytest.approx(start, abs=0.5)
+        assert perforation.end_measured_depth == pytest.approx(end, abs=0.5)
+    # A valve over each perforation of the two connections on valve segments
+    assert len(_reconstructed_valves(well_path)) >= 2
+
+    with tempfile.TemporaryDirectory(prefix="rips_approx_msw") as folder:
+        case.export_completions(
+            well_paths=[well_path], export_folder=folder, include_msw=True
+        )
+        # The top segment (WELSEGS) and the valves (WSEGVALV) of the simulation
+        top = [row for row in _keyword_rows(folder, "WELSEGS") if row[0] == "P1"]
+        assert len(top) == 1
+        assert float(top[0][1]) == pytest.approx(2002.5, abs=0.01)
+        assert float(top[0][2]) == pytest.approx(2050.0, abs=0.01)
+
+        valves = _keyword_rows(folder, "WSEGVALV")
+        assert sorted(round(float(row[2]), 3) for row in valves) == [0.7, 0.8]
+        assert sum(float(row[3]) for row in valves) == pytest.approx(5.0e-4, rel=1e-3)
+
+    # Without the segment data: no valves
+    well_path = case.create_approximate_well_path(
+        well_name="P1", use_multi_segment_data=False
+    )
+    assert len(_reconstructed_valves(well_path)) == 0
 
 
 def test_create_approximate_well_path_errors(rips_instance, initialize_test):

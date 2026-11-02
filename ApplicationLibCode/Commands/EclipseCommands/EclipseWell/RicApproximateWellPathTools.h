@@ -28,13 +28,20 @@ class RimWellPath;
 
 //==================================================================================================
 ///
-/// An approximate well path for a simulation well, made from its connections in the simulation results
-/// (WELSPECS/COMPDAT level data, segments are ignored). The path runs from above the well head through the connected
-/// cells in connection order: straight inside each cell, and from one connected cell to the next through their common
-/// face. The crossing points on the faces make the path short and smooth. Each connected cell gets a perforation over
-/// the path in the cell, with the diameter and skin of the connection, and a perforated length factor that makes the
-/// connection factor of a completion export on the simulation grid equal to the simulated one. On other grids, e.g.
-/// with LGRs, the same factor scales the perforated lengths.
+/// An approximate well path for a simulation well, made from its connections in the simulation results. The path
+/// runs from above the well head through the connected cells in connection order: straight inside each cell, and from
+/// one connected cell to the next through their common face. The crossing points on the faces make the path short and
+/// smooth. Each connected cell gets a perforation over the path in the cell, with the diameter and skin of the
+/// connection, and a perforated length factor that makes the connection factor of a completion export on the
+/// simulation grid equal to the simulated one. On other grids, e.g. with LGRs, the same factor scales the perforated
+/// lengths.
+///
+/// For multi-segment wells, the segment data of the restart file (WELSEGS, COMPSEGS, WSEGVALV) is used too: the
+/// measured depths of the path are the lengths along the tubing (from the connection intervals along the tubing where they
+/// follow each other, else fitted to the depths of the tubing), and the well path gets the multi-segment settings (top
+/// segment as reference measured depth, tubing diameter and roughness, pressure drop) and a valve with the flow
+/// coefficient and area of the valve segment of each connection. Lateral branches and AICD/SICD devices are not
+/// reconstructed.
 ///
 //==================================================================================================
 namespace RicApproximateWellPathTools
@@ -43,7 +50,8 @@ QString wellPathName( const QString& simulationWellName );
 
 // Time step of the connections, or the last time step with connections if negative. A previous approximate
 // well path of the well is replaced.
-std::expected<RimWellPath*, QString> createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep );
+std::expected<RimWellPath*, QString>
+    createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep, bool useMultiSegmentData = true );
 
 // The time step of the well's view if the well has connections then, else -1
 int viewTimeStepWithConnections( const RimSimWellInView& simWell );

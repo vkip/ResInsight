@@ -32,6 +32,7 @@
 #include "Well/RigSimWellData.h"
 #include "Well/RigWellLogExtractor.h"
 #include "Well/RigWellPath.h"
+#include "Well/RigWellPathGeometryTools.h"
 #include "Well/RigWellPathIntersectionTools.h"
 #include "Well/RigWellResultFrame.h"
 #include "Well/RigWellResultPoint.h"
@@ -42,14 +43,20 @@
 #include "RimPerforationInterval.h"
 #include "RimPointBasedWellPath.h"
 #include "RimProject.h"
+#include "RimSegmentCollection.h"
 #include "RimSimWellInView.h"
+#include "RimTools.h"
+#include "RimValveTemplate.h"
+#include "RimValveTemplateCollection.h"
 #include "RimWellPathCollection.h"
 #include "RimWellPathCompletionSettings.h"
+#include "RimWellPathValve.h"
 
 #include <QFileInfo>
 
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <set>
 #include <tuple>
 
@@ -142,13 +149,7 @@ struct FaceRoute
     std::vector<std::pair<size_t, size_t>> cellNodes; // entry and exit node of each cell
 };
 
-// What the path should match in a connected cell, when known: the length of the path in it
-struct CellTarget
-{
-    std::optional<double> length;
-};
-
-FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cells, const std::vector<CellTarget>& targets )
+FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cells )
 {
     constexpr double edgeMargin = 0.05; // crossing points are kept this far (in face parameters) from the face edges
     constexpr int    samples    = 9; // per face direction and refinement pass
@@ -284,15 +285,10 @@ FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cel
 
     // The cell that the segment ending at each node runs through, if any (not between cells that do not touch)
     std::vector<std::optional<std::array<cvf::Vec3d, 8>>> segmentCell( nodes.size() );
-    std::vector<std::optional<size_t>>                    segmentConnection( nodes.size() );
     for ( size_t c = 0; c < cells.size(); ++c )
     {
         const auto [entry, exit] = route.cellNodes[c];
-        if ( exit == entry + 1 )
-        {
-            segmentCell[exit]       = mainGrid.cellCornerVertices( cells[c] );
-            segmentConnection[exit] = c;
-        }
+        if ( exit == entry + 1 ) segmentCell[exit] = mainGrid.cellCornerVertices( cells[c] );
     }
     // A segment between points on the faces of a cell must not leave it, which it can through the curved faces of thin
     // cells at grazing angles
@@ -452,6 +448,129 @@ RimWellPathCompletionSettings::WellType wellType( const WellData& well )
 }
 
 //--------------------------------------------------------------------------------------------------
+/// The segment with the given number
+//--------------------------------------------------------------------------------------------------
+const RifRestartWellConnectionReader::Segment* findSegment( const WellData& well, int number )
+{
+    if ( number >= 1 && static_cast<size_t>( number ) <= well.segments.size() && well.segments[number - 1].number == number )
+    {
+        return &well.segments[number - 1];
+    }
+    for ( const auto& segment : well.segments )
+    {
+        if ( segment.number == number ) return &segment;
+    }
+    return nullptr;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// The tubing segment that a segment drains to: the segment itself, or the first regular segment downstream of a device
+//--------------------------------------------------------------------------------------------------
+const RifRestartWellConnectionReader::Segment* tubingSegment( const WellData& well, int number )
+{
+    using Type    = RifRestartWellConnectionReader::Segment::Type;
+    auto* segment = findSegment( well, number );
+    for ( size_t guard = 0; segment && segment->type != Type::REGULAR && guard < well.segments.size(); ++guard )
+    {
+        segment = findSegment( well, segment->outlet );
+    }
+    return segment;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// The main branch of a multi-segment well: the tubing length and depth of its segment nodes
+//--------------------------------------------------------------------------------------------------
+struct MainBore
+{
+    std::vector<double> lengths;
+    std::vector<double> depths;
+    double              diameter  = 0.0;
+    double              roughness = 0.0;
+
+    bool empty() const { return lengths.empty(); }
+
+    double depthAt( double length ) const
+    {
+        if ( lengths.size() == 1 ) return depths.front();
+        size_t i          = std::upper_bound( lengths.begin(), lengths.end(), length ) - lengths.begin();
+        i                 = std::clamp<size_t>( i, 1, lengths.size() - 1 );
+        const double span = lengths[i] - lengths[i - 1];
+        const double t    = span > 0.0 ? ( length - lengths[i - 1] ) / span : 0.0;
+        return depths[i - 1] + t * ( depths[i] - depths[i - 1] );
+    }
+};
+
+MainBore mainBore( const WellData& well )
+{
+    using Type = RifRestartWellConnectionReader::Segment::Type;
+
+    std::vector<const RifRestartWellConnectionReader::Segment*> segments;
+    for ( const auto& segment : well.segments )
+    {
+        if ( segment.branch == 1 && segment.type == Type::REGULAR ) segments.push_back( &segment );
+    }
+    std::sort( segments.begin(), segments.end(), []( auto* a, auto* b ) { return a->length < b->length; } );
+
+    MainBore bore;
+    for ( auto* segment : segments )
+    {
+        bore.lengths.push_back( segment->length );
+        bore.depths.push_back( segment->depth );
+        // The top segment has no tubing
+        if ( segment->number != 1 && bore.diameter == 0.0 && segment->diameter > 0.0 )
+        {
+            bore.diameter  = segment->diameter;
+            bore.roughness = segment->roughness;
+        }
+    }
+    return bore;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// An ICD valve template with the flow coefficient of a valve segment (WSEGVALV) and the given area, reused when it exists
+//--------------------------------------------------------------------------------------------------
+RimValveTemplate* valveTemplateFor( const RifRestartWellConnectionReader::Segment& segment,
+                                    double                                         area,
+                                    RiaDefines::EclipseUnitSystem                  unitSystem,
+                                    const QString&                                 wellName )
+{
+    auto* collection = RimTools::valveTemplateCollection();
+    if ( !collection ) return nullptr;
+
+    // Orifice diameter in mm (METRIC) or inches (FIELD), from the area in m2 or ft2
+    const double  unitsPerLength = unitSystem == RiaDefines::EclipseUnitSystem::UNITS_FIELD ? 12.0 : 1000.0;
+    const double  diameter       = std::sqrt( 4.0 * area / M_PI ) * unitsPerLength;
+    const QString label =
+        QString( "SIM_%1 Cv %2 d %3" ).arg( wellName ).arg( segment.valveFlowCoefficient, 0, 'g', 4 ).arg( diameter, 0, 'g', 5 );
+
+    for ( auto* existing : collection->items() )
+    {
+        if ( existing->type() == RiaDefines::WellPathComponentType::ICD && existing->name().endsWith( label ) ) return existing;
+    }
+
+    auto* valveTemplate = new RimValveTemplate();
+    valveTemplate->setType( RiaDefines::WellPathComponentType::ICD );
+    valveTemplate->setUnitSystem( unitSystem );
+    valveTemplate->setUserLabel( label );
+    valveTemplate->setName( valveTemplate->fullLabel() );
+    valveTemplate->setDefaultValuesFromUnits();
+    valveTemplate->setOrificeDiameter( diameter );
+    valveTemplate->setFlowCoefficient( segment.valveFlowCoefficient );
+    collection->addItem( valveTemplate );
+    collection->updateConnectedEditors();
+    return valveTemplate;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// Perforations are kept this far from where the path enters and leaves a cell, so that a completion export does not see
+/// the neighbour cells, also on other grids with nearly the same faces (e.g. refined grids)
+//--------------------------------------------------------------------------------------------------
+double perforationMargin( double length )
+{
+    return std::min( 0.05, 0.1 * length );
+}
+
+//--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
 int lastTimeStepWithConnections( const RigSimWellData* simWell, size_t timeStepCount )
@@ -484,8 +603,10 @@ QString RicApproximateWellPathTools::wellPathName( const QString& simulationWell
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<RimWellPath*, QString>
-    RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep )
+std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase,
+                                                                                             const QString&  simulationWellName,
+                                                                                             int             timeStep,
+                                                                                             bool            useMultiSegmentData )
 {
     if ( !eclipseCase || !eclipseCase->eclipseCaseData() || !eclipseCase->eclipseCaseData()->mainGrid() )
     {
@@ -537,9 +658,12 @@ std::expected<RimWellPath*, QString>
     {
         return std::unexpected( QString( "Well '%1' is completed in an LGR, which is not supported." ).arg( simulationWellName ) );
     }
-    if ( well->isMultiSegment )
+    const MainBore bore = well->isMultiSegment && useMultiSegmentData ? mainBore( *well ) : MainBore();
+    if ( well->isMultiSegment && useMultiSegmentData && bore.empty() )
     {
-        warnings.push_back( QString( "Well '%1' is a multi-segment well; only its connections are used." ).arg( simulationWellName ) );
+        warnings.push_back( QString( "Well '%1' is a multi-segment well without segment data in the restart file; only its connections "
+                                     "are used." )
+                                .arg( simulationWellName ) );
     }
 
     // Connections in cells of the main grid
@@ -568,6 +692,20 @@ std::expected<RimWellPath*, QString>
                                     .arg( connection.j + 1 )
                                     .arg( connection.k + 1 ) );
             continue;
+        }
+        if ( !bore.empty() && connection.segment > 0 )
+        {
+            const auto* tubing = tubingSegment( *well, connection.segment );
+            if ( tubing && tubing->branch != 1 )
+            {
+                warnings.push_back(
+                    QString( "Connection (%1, %2, %3) is on lateral branch %4, which is not reconstructed, and was skipped." )
+                        .arg( connection.i + 1 )
+                        .arg( connection.j + 1 )
+                        .arg( connection.k + 1 )
+                        .arg( tubing->branch ) );
+                continue;
+            }
         }
         connectionCells.push_back( { connection, cellIndex } );
     }
@@ -621,14 +759,66 @@ std::expected<RimWellPath*, QString>
     points.push_back( headTop );
 
     std::vector<std::pair<size_t, size_t>> cellPointIndices; // entry and exit point of each cell
+    // Connection intervals along the tubing closer than this follow each other (exported values are rounded)
+    constexpr double                                      contiguityTolerance = 0.5;
+    bool                                                  intervalsUsed       = false;
+    std::vector<std::optional<std::pair<double, double>>> tubingInterval( connectionCells.size() ); // used connection intervals
+    std::optional<size_t>                                 topPointIndex;
+    bool                                                  measuredDepthCalibrated   = false;
+    double                                                measuredDepthAtFirstPoint = 0.0;
     {
         std::vector<size_t> cells;
         for ( const auto& connectionCell : connectionCells )
         {
             cells.push_back( connectionCell.cellIndex );
         }
-        std::vector<CellTarget> targets( cells.size() );
-        const FaceRoute         route = faceRoute( mainGrid, cells, targets );
+        // Multi-segment wells: where the connections are along the tubing (COMPSEGS) gives the measured depths of the path
+        // when the intervals follow each other, as when they were made from the path in each cell. Otherwise, e.g. when
+        // the intervals are where devices are, the measured depths are fitted to the depths of the tubing. (Fitting the path
+        // itself to the tubing lengths and depths gave connection factors on refined grids further from those of the
+        // true well paths in tests, as the lateral position of the path is still free.)
+        if ( !bore.empty() && connectionCells.size() > 1 )
+        {
+            // An interval is used when it is after the previous used one along the tubing (not e.g. inside it)
+            std::vector<bool> valid( connectionCells.size(), false );
+            double            lastEnd    = -std::numeric_limits<double>::max();
+            size_t            contiguous = 0;
+            for ( size_t c = 0; c < connectionCells.size(); ++c )
+            {
+                const auto& connection = connectionCells[c].connection;
+                valid[c] = connection.segmentEnd > connection.segmentStart && connection.segmentStart >= lastEnd - contiguityTolerance;
+                if ( valid[c] ) lastEnd = connection.segmentEnd;
+                if ( c > 0 && std::abs( connection.segmentStart - connectionCells[c - 1].connection.segmentEnd ) < contiguityTolerance )
+                    contiguous++;
+            }
+            intervalsUsed = 2 * contiguous >= connectionCells.size() - 1;
+            if ( !intervalsUsed )
+            {
+                warnings.push_back(
+                    QString( "The connection intervals along the tubing of well '%1' do not follow each other (%2 of %3 do); "
+                             "they are not used for the path." )
+                        .arg( simulationWellName )
+                        .arg( contiguous )
+                        .arg( connectionCells.size() - 1 ) );
+            }
+            else if ( std::count( valid.begin(), valid.end(), false ) > 0 )
+            {
+                warnings.push_back(
+                    QString( "%1 connection interval(s) along the tubing of well '%2' are not after the previous ones and are "
+                             "not used for the path." )
+                        .arg( std::count( valid.begin(), valid.end(), false ) )
+                        .arg( simulationWellName ) );
+            }
+
+            for ( size_t c = 0; c < connectionCells.size() && intervalsUsed; ++c )
+            {
+                if ( valid[c] )
+                    tubingInterval[c] = std::make_pair( connectionCells[c].connection.segmentStart, connectionCells[c].connection.segmentEnd );
+            }
+            intervalsUsed = intervalsUsed && valid.front();
+        }
+
+        const FaceRoute route = faceRoute( mainGrid, cells );
 
         // Straight down to the first cell when the well head is above it
         const auto headIjk  = mainGrid.ijkFromCellIndex( headCell );
@@ -637,6 +827,79 @@ std::expected<RimWellPath*, QString>
         {
             const cvf::Vec3d& entry = route.nodes.front();
             points                  = { cvf::Vec3d( entry.x(), entry.y(), std::max( 0.0, headTop.z() + 1.0 ) ) };
+        }
+
+        // Multi-segment wells: the measured depths of the path follow the tubing. The measured depth where the path enters
+        // the first cell is the start of its connection interval along the tubing, when the intervals are used. Otherwise it
+        // is the one that best fits the depths of the path to the depths of the tubing nodes along the tubing.
+        std::optional<double> entryLength;
+        if ( intervalsUsed && route.nodes.size() > 1 )
+        {
+            const auto&  first         = connectionCells.front().connection;
+            const double lengthInFirst = ( route.nodes[route.cellNodes.front().second] - route.nodes.front() ).length();
+            const bool   firstIsFull   = connectionCells.size() > 1 &&
+                                     std::abs( connectionCells[1].connection.segmentStart - first.segmentEnd ) < contiguityTolerance;
+            entryLength = firstIsFull ? first.segmentEnd - lengthInFirst : first.segmentStart;
+        }
+        else if ( !bore.empty() && bore.lengths.size() > 2 && route.nodes.size() > 2 )
+        {
+            std::vector<double> along( 1, 0.0 );
+            for ( size_t n = 1; n < route.nodes.size(); ++n )
+            {
+                along.push_back( along.back() + ( route.nodes[n] - route.nodes[n - 1] ).length() );
+            }
+            double bestMisfit = std::numeric_limits<double>::max();
+            for ( double start = bore.lengths.front(); start <= bore.lengths.back(); start += 0.25 )
+            {
+                double misfit = 0.0;
+                size_t count  = 0;
+                for ( size_t n = 0; n < route.nodes.size(); ++n )
+                {
+                    if ( start + along[n] > bore.lengths.back() ) break;
+                    const double difference = bore.depthAt( start + along[n] ) + route.nodes[n].z();
+                    misfit += difference * difference;
+                    count++;
+                }
+                if ( count >= 3 && misfit / count < bestMisfit )
+                {
+                    bestMisfit  = misfit / count;
+                    entryLength = start;
+                }
+            }
+        }
+
+        // The path passes the top segment at its length and depth, and is vertical above it, with the measured depth at sea
+        // level making up the difference
+        if ( entryLength && route.nodes.size() > 1 )
+        {
+            const cvf::Vec3d& entry     = route.nodes.front();
+            const double      topLength = bore.lengths.front();
+            const double      topDepth  = bore.depths.front();
+            const double      alongTop  = *entryLength - topLength;
+            const double      belowTop  = -entry.z() - topDepth;
+
+            cvf::Vec3d backwards = entry - route.nodes[1];
+            backwards.z()        = 0.0;
+            if ( !backwards.normalize() ) backwards = cvf::Vec3d( 1, 0, 0 );
+
+            if ( alongTop > 0.0 && alongTop >= std::abs( belowTop ) )
+            {
+                const double     horizontal = std::sqrt( alongTop * alongTop - belowTop * belowTop );
+                const cvf::Vec3d top        = entry + backwards * horizontal + cvf::Vec3d( 0, 0, belowTop );
+                points                      = { cvf::Vec3d( top.x(), top.y(), 0.0 ), top };
+                measuredDepthAtFirstPoint   = topLength - topDepth;
+                topPointIndex               = 1;
+                measuredDepthCalibrated     = true;
+            }
+            else
+            {
+                points                    = { cvf::Vec3d( entry.x(), entry.y(), 0.0 ) };
+                measuredDepthAtFirstPoint = *entryLength + entry.z();
+                warnings.push_back( QString( "The top segment of well '%1' is not within reach of the first connection along the tubing; "
+                                             "the path above the first connection is vertical." )
+                                        .arg( simulationWellName ) );
+            }
+            if ( measuredDepthAtFirstPoint < 0.0 ) measuredDepthAtFirstPoint = 0.0;
         }
         const size_t offset = points.size();
         points.insert( points.end(), route.nodes.begin(), route.nodes.end() );
@@ -649,8 +912,55 @@ std::expected<RimWellPath*, QString>
         if ( direction.normalize() ) points.push_back( points.back() + direction );
     }
 
+    // Measured depths along the path, or along the tubing where the connection intervals are known: the path then has the
+    // tubing length at the top segment and where it enters and leaves the connected cells, and in between the lengths
+    // along the path scaled to fit
+    std::vector<double> measuredDepths = RigWellPathGeometryTools::calculateMeasuredDepth( points, measuredDepthAtFirstPoint );
+    if ( intervalsUsed )
+    {
+        std::vector<std::pair<size_t, double>> anchors;
+        if ( topPointIndex ) anchors.emplace_back( *topPointIndex, bore.lengths.front() );
+        for ( size_t c = 0; c < connectionCells.size(); ++c )
+        {
+            if ( !tubingInterval[c] ) continue;
+            anchors.emplace_back( cellPointIndices[c].first, tubingInterval[c]->first );
+            anchors.emplace_back( cellPointIndices[c].second, tubingInterval[c]->second );
+        }
+        std::stable_sort( anchors.begin(), anchors.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
+        std::vector<std::pair<size_t, double>> increasing;
+        for ( const auto& anchor : anchors )
+        {
+            if ( increasing.empty() || ( anchor.first > increasing.back().first && anchor.second > increasing.back().second ) )
+            {
+                increasing.push_back( anchor );
+            }
+        }
+
+        const std::vector<double> alongPath = measuredDepths;
+        for ( size_t i = 0; i < measuredDepths.size() && !increasing.empty(); ++i )
+        {
+            auto next =
+                std::lower_bound( increasing.begin(), increasing.end(), i, []( const auto& a, size_t index ) { return a.first < index; } );
+            if ( next == increasing.begin() )
+            {
+                measuredDepths[i] = alongPath[i] + increasing.front().second - alongPath[increasing.front().first];
+            }
+            else if ( next == increasing.end() )
+            {
+                measuredDepths[i] = alongPath[i] + increasing.back().second - alongPath[increasing.back().first];
+            }
+            else
+            {
+                const auto&  previous = *( next - 1 );
+                const double span     = alongPath[next->first] - alongPath[previous.first];
+                const double t        = span > 0.0 ? ( alongPath[i] - alongPath[previous.first] ) / span : 0.0;
+                measuredDepths[i]     = previous.second + t * ( next->second - previous.second );
+            }
+        }
+    }
+
     wellPath->setUnitSystem( caseData->unitsType() );
-    wellPath->setTrajectoryPoints( points );
+    wellPath->setTrajectoryPoints( points, measuredDepths );
 
     const RigWellPath* geometry = wellPath->wellPathGeometry();
     if ( !geometry ) return std::unexpected( "Failed to create the well path geometry." );
@@ -666,10 +976,11 @@ std::expected<RimWellPath*, QString>
 
     // One perforation per connection, over the path in the cell
 
-    std::vector<RimPerforationInterval*> perforations;
-    double                               minFactor = std::numeric_limits<double>::max();
-    double                               maxFactor = 0.0;
-    int                                  shutCount = 0;
+    std::vector<RimPerforationInterval*>              perforations;
+    std::vector<std::vector<RimPerforationInterval*>> perforationsOfConnection( connectionCells.size() );
+    double                                            minFactor = std::numeric_limits<double>::max();
+    double                                            maxFactor = 0.0;
+    int                                               shutCount = 0;
     // The path in each connected cell: between its entry and exit points
     std::vector<std::pair<double, double>> pathInCell;
     for ( const auto& [entry, exit] : cellPointIndices )
@@ -700,7 +1011,7 @@ std::expected<RimWellPath*, QString>
         const auto [entryMd, exitMd] = pathInCell[c];
 
         // Kept off the cell faces, so that a completion export does not see the neighbour cells
-        const double margin  = 1.0e-3 * ( exitMd - entryMd );
+        const double margin  = perforationMargin( exitMd - entryMd );
         const double startMd = entryMd + margin;
         const double endMd   = exitMd - margin;
         if ( !( endMd > startMd ) )
@@ -768,7 +1079,7 @@ std::expected<RimWellPath*, QString>
                 unscaled = 0.0;
                 for ( auto& [pieceStart, pieceEnd] : piecesInCell )
                 {
-                    const double pieceMargin = 1.0e-3 * ( pieceEnd - pieceStart );
+                    const double pieceMargin = perforationMargin( pieceEnd - pieceStart );
                     pieceStart += pieceMargin;
                     pieceEnd -= pieceMargin;
                     const auto [piecePoints, pieceMds] = geometry->clippedPointSubset( pieceStart, pieceEnd );
@@ -786,14 +1097,18 @@ std::expected<RimWellPath*, QString>
             {
                 piecesInCell.clear();
             }
+            // A completion export does not see the cell along the path, e.g. where it overlaps other cells across a fault.
+            // The connection is left out rather than moved to the other cells.
             if ( !otherCells.empty() )
             {
-                warnings.push_back( QString( "The perforation of connection (%1, %2, %3) also crosses %4 other cell(s), which a completion "
-                                             "export includes." )
+                warnings.push_back( QString( "Connection (%1, %2, %3) got no perforation; a completion export does not see the path in the "
+                                             "cell, but in %4 other cell(s)." )
                                         .arg( connection.i + 1 )
                                         .arg( connection.j + 1 )
                                         .arg( connection.k + 1 )
                                         .arg( otherCells.size() ) );
+                delete perforation;
+                continue;
             }
         }
         if ( !( unscaled > 0.0 ) )
@@ -823,6 +1138,7 @@ std::expected<RimWellPath*, QString>
         if ( piecesInCell.empty() )
         {
             perforations.push_back( perforation );
+            perforationsOfConnection[c].push_back( perforation );
             continue;
         }
         for ( const auto& [pieceStart, pieceEnd] : piecesInCell )
@@ -834,18 +1150,93 @@ std::expected<RimWellPath*, QString>
             piece->setCheckState( connection.isOpen );
             piece->setPerforatedLengthFactor( factor );
             perforations.push_back( piece );
+            perforationsOfConnection[c].push_back( piece );
         }
         delete perforation;
     }
 
     wellPath->perforationIntervalCollection()->replacePerforations( perforations );
 
+    // Multi-segment wells: the tubing and the valves
+    int valveCount = 0;
+    if ( !bore.empty() )
+    {
+        using PressureDrop = RimCompletionEnums::PressureDropType;
+        completionSettings->setPressureDrop( well->pressureDropModel == 2   ? PressureDrop::HYDROSTATIC
+                                             : well->pressureDropModel == 1 ? PressureDrop::HYDROSTATIC_FRICTION
+                                                                            : PressureDrop::HYDROSTATIC_FRICTION_ACCELERATION );
+        completionSettings->setLengthAndDepth( RimCompletionEnums::LengthAndDepthType::ABS );
+
+        auto* segments = wellPath->segmentCollection();
+        if ( bore.diameter > 0.0 ) segments->setLinerDiameter( bore.diameter );
+        if ( bore.roughness > 0.0 ) segments->setRoughnessFactor( bore.roughness );
+        if ( measuredDepthCalibrated )
+        {
+            segments->setReferenceMDType( RimCompletionEnums::ReferenceMDType::MANUAL_REFERENCE_MD );
+            segments->setManualReferenceMD( bore.lengths.front() );
+        }
+        else
+        {
+            segments->setReferenceMDType( RimCompletionEnums::ReferenceMDType::AUTO_REFERENCE_MD );
+        }
+
+        // Connections that share a valve segment share its area
+        std::map<int, int> connectionsOfSegment;
+        for ( const auto& connectionCell : connectionCells )
+        {
+            connectionsOfSegment[connectionCell.connection.segment]++;
+        }
+
+        std::set<QString> unsupportedDevices;
+        for ( size_t c = 0; c < connectionCells.size(); ++c )
+        {
+            const auto* segment = findSegment( *well, connectionCells[c].connection.segment );
+            if ( !segment || segment->type == RifRestartWellConnectionReader::Segment::Type::REGULAR ) continue;
+            if ( segment->type != RifRestartWellConnectionReader::Segment::Type::VALVE )
+            {
+                unsupportedDevices.insert( segment->type == RifRestartWellConnectionReader::Segment::Type::AUTO_ICD     ? "AICD"
+                                           : segment->type == RifRestartWellConnectionReader::Segment::Type::SPIRAL_ICD ? "SICD"
+                                                                                                                        : "other" );
+                continue;
+            }
+            if ( perforationsOfConnection[c].empty() || !( segment->valveArea > 0.0 ) ) continue;
+
+            // One valve over each perforation of the connection, sharing the area by length. A completion export shares the area
+            // of a valve between the cells along it, e.g. the cells of a refined grid.
+            double totalLength = 0.0;
+            for ( auto* perforation : perforationsOfConnection[c] )
+            {
+                totalLength += perforation->endMD() - perforation->startMD();
+            }
+            if ( !( totalLength > 0.0 ) ) continue;
+
+            const double area = segment->valveArea / std::max( 1, connectionsOfSegment[segment->number] );
+            for ( auto* perforation : perforationsOfConnection[c] )
+            {
+                const double length = perforation->endMD() - perforation->startMD();
+                auto* valveTemplate = valveTemplateFor( *segment, area * length / totalLength, caseData->unitsType(), simulationWellName );
+                if ( !valveTemplate ) continue;
+
+                auto* valve = new RimWellPathValve;
+                valve->setValveTemplate( valveTemplate );
+                perforation->addValve( valve );
+                valve->setMeasuredDepthAndCount( perforation->startMD(), length, 1 );
+                valve->applyValveLabelAndIcon();
+            }
+            valveCount++;
+        }
+        for ( const auto& device : unsupportedDevices )
+        {
+            warnings.push_back( QString( "Well '%1' has %2 devices, which are not reconstructed." ).arg( simulationWellName ).arg( device ) );
+        }
+    }
+
     wellPathCollection->updateConnectedEditors();
     wellPathCollection->scheduleRedrawAffectedViews();
     if ( auto* project = RimProject::current() ) project->scheduleCreateDisplayModelAndRedrawAllViews();
 
     RiaLogging::info( QString( "Created the approximate well path '%1' for well '%2' at %3: %4 perforations (%5 shut), perforated "
-                               "length factors %6 - %7." )
+                               "length factors %6 - %7%8." )
                           .arg( name )
                           .arg( simulationWellName )
                           .arg( date.toString( Qt::ISODate ) )
@@ -853,6 +1244,11 @@ std::expected<RimWellPath*, QString>
                           .arg( shutCount )
                           .arg( perforations.empty() ? 0.0 : minFactor, 0, 'g', 3 )
                           .arg( perforations.empty() ? 0.0 : maxFactor, 0, 'g', 3 )
+                          .arg( bore.empty() ? QString()
+                                             : QString( ", multi-segment data from %1 segments (%2), %3 valves" )
+                                                   .arg( well->segments.size() )
+                                                   .arg( intervalsUsed ? "with the connection intervals along the tubing" : "the tubing only" )
+                                                   .arg( valveCount ) )
                           .toStdString() );
     for ( const auto& warning : warnings )
     {

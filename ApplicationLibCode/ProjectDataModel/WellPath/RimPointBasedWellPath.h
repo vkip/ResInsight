@@ -41,6 +41,11 @@ public:
     void                    setTrajectoryPoints( const std::vector<cvf::Vec3d>& wellTargets );
     std::vector<cvf::Vec3d> trajectoryPoints() const;
 
+    // Trajectory points with given measured depths, e.g. along the tubing of a well. Without them (or when their count
+    // does not match), the measured depths are the lengths along the trajectory from the first point.
+    void                setTrajectoryPoints( const std::vector<cvf::Vec3d>& wellTargets, const std::vector<double>& measuredDepths );
+    std::vector<double> givenMeasuredDepths() const;
+
     void createWellPathGeometry();
 
 private:
@@ -49,4 +54,5 @@ private:
 
 private:
     caf::PdmField<std::vector<cvf::Vec3d>> m_trajectoryPoints;
+    caf::PdmField<std::vector<double>>     m_measuredDepths;
 };
