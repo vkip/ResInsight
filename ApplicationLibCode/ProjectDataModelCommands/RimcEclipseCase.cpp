@@ -44,11 +44,17 @@
 #include "RigGridBase.h"
 #include "RigGridExportAdapter.h"
 #include "RigMainGrid.h"
+#include "SimulationFile/RigSimulationInputSettings.h"
+#include "SimulationFile/RigSimulationInputTool.h"
+
 #include "RigNoRefinement.h"
+#include "RigNonUniformRefinement.h"
 #include "RigResdataGridConverter.h"
 #include "RigReservoirGridTools.h"
 #include "RigResultAccessor.h"
 #include "RigResultAccessorFactory.h"
+#include "opm/input/eclipse/Deck/DeckKeyword.hpp"
+#include "opm/input/eclipse/Deck/DeckRecord.hpp"
 
 #include "RimCase.h"
 #include "RimCellFilter.h"
@@ -1656,5 +1662,99 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseResultCase_createSaturat
         RiaGuiApplication::instance()->getOrCreateAndShowMainPlotWindow();
     }
 
+    return nullptr;
+}
+
+CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseCase, RimEclipseCase_exportRefinedSimulationInput, "exportRefinedSimulationInput" );
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RimEclipseCase_exportRefinedSimulationInput::RimEclipseCase_exportRefinedSimulationInput( caf::PdmObjectHandle* self )
+    : caf::PdmVoidObjectMethod( self )
+{
+    CAF_PDM_InitObject( "Export Refined Simulation Input",
+                        "",
+                        "",
+                        "Export the whole grid, refined by rows and columns as refinement regions in Export Sector Model do, "
+                        "with the deck adjusted to it (COMPDAT, COMPSEGS, ... as in the sector model export)" );
+
+    CAF_PDM_InitScriptableField( &m_deckFile, "DeckFile", QString(), "Deck File", "", "", "The DATA file of the case" );
+    CAF_PDM_InitScriptableField( &m_exportDeckFile, "ExportDeckFile", QString(), "Export Deck File", "", "", "The refined DATA file to write" );
+    CAF_PDM_InitScriptableField( &m_refinedRanges,
+                                 "RefinedRanges",
+                                 std::vector<int>(),
+                                 "Refined Ranges",
+                                 "",
+                                 "",
+                                 "Four values per range: direction (0: I, 1: J, 2: K), first and last index (zero-based), and the "
+                                 "number of cells each index is divided into" );
+    CAF_PDM_InitScriptableField( &m_keywordsToRemove, "KeywordsToRemove", std::vector<QString>(), "Keywords to Remove" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<caf::PdmObjectHandle*, QString> RimEclipseCase_exportRefinedSimulationInput::execute()
+{
+    auto* eclipseCase = self<RimEclipseCase>();
+    if ( !eclipseCase || !eclipseCase->eclipseCaseData() || !eclipseCase->mainGrid() ) return std::unexpected( "The case has no grid." );
+    const RigMainGrid* mainGrid = eclipseCase->mainGrid();
+
+    const cvf::Vec3st                  size( mainGrid->cellCountI(), mainGrid->cellCountJ(), mainGrid->cellCountK() );
+    std::array<std::vector<size_t>, 3> factors;
+    for ( int d = 0; d < 3; ++d )
+    {
+        factors[d].assign( size[d], 1 );
+    }
+    const auto& ranges = m_refinedRanges();
+    if ( ranges.size() % 4 != 0 ) return std::unexpected( "Refined ranges need four values each." );
+    for ( size_t n = 0; n < ranges.size(); n += 4 )
+    {
+        const int dim = ranges[n], first = ranges[n + 1], last = ranges[n + 2], count = ranges[n + 3];
+        if ( dim < 0 || dim > 2 || first < 0 || last < first || last >= static_cast<int>( size[dim] ) || count < 1 )
+        {
+            return std::unexpected( QString( "Invalid refined range %1 %2 %3 %4." ).arg( dim ).arg( first ).arg( last ).arg( count ) );
+        }
+        for ( int index = first; index <= last; ++index )
+        {
+            auto& factor = factors[dim][index];
+            if ( factor > 1 && factor != static_cast<size_t>( count ) )
+            {
+                return std::unexpected(
+                    QString( "Index %1 in direction %2 is refined both %3 and %4 times." ).arg( index ).arg( dim ).arg( factor ).arg( count ) );
+            }
+            factor = static_cast<size_t>( count );
+        }
+    }
+
+    auto refinement = std::make_unique<RigNonUniformRefinement>( size );
+    for ( int d = 0; d < 3; ++d )
+    {
+        for ( size_t index = 0; index < size[d]; ++index )
+        {
+            refinement->setCumulativeFractions( static_cast<RigRefinement::Dimension>( d ),
+                                                index,
+                                                RigNonUniformRefinement::generateEqualFractions( factors[d][index] ) );
+        }
+    }
+
+    RigSimulationInputSettings settings;
+    settings.setMin( caf::VecIjk0( 0, 0, 0 ) );
+    settings.setMax( caf::VecIjk0( size.x() - 1, size.y() - 1, size.z() - 1 ) );
+    settings.setRefinement( std::move( refinement ) );
+    std::vector<std::string> keywordsToRemove;
+    for ( const auto& keyword : m_keywordsToRemove() )
+    {
+        keywordsToRemove.push_back( keyword.toStdString() );
+    }
+    settings.setKeywordsToRemove( keywordsToRemove );
+    settings.setInputDeckFileName( m_deckFile() );
+    settings.setOutputDeckFileName( m_exportDeckFile() );
+
+    if ( auto result = RigSimulationInputTool::exportSimulationInput( *eclipseCase, settings, nullptr ); !result )
+    {
+        return std::unexpected( result.error() );
+    }
     return nullptr;
 }

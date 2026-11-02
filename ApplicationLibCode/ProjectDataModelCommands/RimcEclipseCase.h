@@ -468,3 +468,22 @@ public:
 private:
     caf::PdmField<int> m_timeStep;
 };
+
+//==================================================================================================
+///
+//==================================================================================================
+class RimEclipseCase_exportRefinedSimulationInput : public caf::PdmVoidObjectMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimEclipseCase_exportRefinedSimulationInput( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+
+private:
+    caf::PdmField<QString>              m_deckFile;
+    caf::PdmField<QString>              m_exportDeckFile;
+    caf::PdmField<std::vector<int>>     m_refinedRanges;
+    caf::PdmField<std::vector<QString>> m_keywordsToRemove;
+};
