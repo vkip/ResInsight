@@ -68,7 +68,7 @@ RimFaultInViewCollection::RimFaultInViewCollection()
                                                     "FaultInViewCollection",
                                                     "Per-view fault collection" );
 
-    CAF_PDM_InitField( &m_showFaultCollection, "Active", true, "Active" );
+    CAF_PDM_InitScriptableField( &m_showFaultCollection, "Active", true, "Active", "", "Show the faults of the view" );
     m_showFaultCollection.uiCapability()->setUiHidden( true );
 
     CAF_PDM_InitField( &m_showFaultFaces, "ShowFaultFaces", true, "Show Defined faces" );
