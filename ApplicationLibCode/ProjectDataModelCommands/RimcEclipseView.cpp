@@ -21,6 +21,7 @@
 #include "ExportCommands/RicEclipseCellResultToFileImpl.h"
 #include "ExportCommands/RicFluxSectorModelTools.h"
 #include "ExportCommands/RicSaveEclipseInputVisibleCellsFeature.h"
+#include "ExportCommands/RicWellRefinementTools.h"
 
 #include "RiaViewRedrawScheduler.h"
 
@@ -34,6 +35,7 @@
 #include "RimFaultDistanceCollection.h"
 #include "RimFaultInView.h"
 #include "RimFaultInViewCollection.h"
+#include "RimWellRefinementRegion.h"
 
 #include "RimcSectorModelResult.h"
 
@@ -401,4 +403,66 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createSectorModelFo
 QString RimEclipseView_createSectorModelForWell::classKeywordReturnedType() const
 {
     return RimcSectorModelResult::classKeywordStatic();
+}
+
+CAF_PDM_OBJECT_METHOD_SOURCE_INIT( RimEclipseView, RimEclipseView_createWellRefinement, "createWellRefinement" );
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RimEclipseView_createWellRefinement::RimEclipseView_createWellRefinement( caf::PdmObjectHandle* self )
+    : caf::PdmObjectCreationMethod( self )
+{
+    CAF_PDM_InitObject( "Create Well Refinement",
+                        "",
+                        "",
+                        "Create the approximate well path of a simulation well and amalgamated LGRs around its perforated part, as "
+                        "Well Refinements of the view. The path cells are refined refinement * layers times laterally, the ring of "
+                        "cells around them refinement * (layers - 1) times, and so on; vertically likewise in layers above and below. "
+                        "Previous Well Refinements of the well are replaced." );
+
+    CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
+    CAF_PDM_InitScriptableField( &m_timeStep,
+                                 "TimeStep",
+                                 -1,
+                                 "Time Step",
+                                 "",
+                                 "",
+                                 "Zero-based time step of the connections. -1 uses the last time step where the well has connections" );
+    CAF_PDM_InitScriptableField( &m_lgrName, "LgrName", QString(), "LGR Name", "", "", "Base name of the LGRs. Default: 'L' followed by the well name" );
+    CAF_PDM_InitScriptableField( &m_lateralRefinement, "LateralRefinement", 3, "Lateral Refinement", "", "", "nref in X and Y" );
+    CAF_PDM_InitScriptableField( &m_lateralLayers, "LateralLayers", 3, "Lateral Layers", "", "", "nlayers in X and Y" );
+    CAF_PDM_InitScriptableField( &m_refinementX, "RefinementX", 0, "Refinement X", "", "", "nref in X, if not 0" );
+    CAF_PDM_InitScriptableField( &m_layersX, "LayersX", 0, "Layers X", "", "", "nlayers in X, if not 0" );
+    CAF_PDM_InitScriptableField( &m_refinementY, "RefinementY", 0, "Refinement Y", "", "", "nref in Y, if not 0" );
+    CAF_PDM_InitScriptableField( &m_layersY, "LayersY", 0, "Layers Y", "", "", "nlayers in Y, if not 0" );
+    CAF_PDM_InitScriptableField( &m_refinementZ, "RefinementZ", 1, "Refinement Z", "", "", "nref in Z" );
+    CAF_PDM_InitScriptableField( &m_layersZ, "LayersZ", 1, "Layers Z", "", "", "nlayers in Z" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createWellRefinement::execute()
+{
+    auto* view = self<RimEclipseView>();
+    if ( !view ) return std::unexpected( "No view is available." );
+
+    RicWellLgrTools::RingSettings rings;
+    rings.refinement = { m_refinementX() > 0 ? m_refinementX() : m_lateralRefinement(),
+                         m_refinementY() > 0 ? m_refinementY() : m_lateralRefinement(),
+                         m_refinementZ() };
+    rings.layers = { m_layersX() > 0 ? m_layersX() : m_lateralLayers(), m_layersY() > 0 ? m_layersY() : m_lateralLayers(), m_layersZ() };
+
+    auto region = RicWellRefinementTools::createWellRefinement( view, m_wellName(), m_timeStep(), m_lgrName(), rings );
+    if ( !region ) return std::unexpected( region.error() );
+    return *region;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RimEclipseView_createWellRefinement::classKeywordReturnedType() const
+{
+    return RimWellRefinementRegion::classKeywordStatic();
 }

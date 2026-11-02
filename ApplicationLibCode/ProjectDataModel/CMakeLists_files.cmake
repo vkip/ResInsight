@@ -61,6 +61,7 @@ set(SOURCE_GROUP_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/RimGridCollection.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimRefinementRegion.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimRefinementRegionCollection.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RimWellRefinementRegion.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimPlotCurve.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimPlotCurveAppearance.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RimStackablePlotCurve.cpp

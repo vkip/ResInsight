@@ -396,6 +396,8 @@ void RicExportLgrFeature::writeLgrs( QTextStream& stream, const std::vector<LgrI
             formatter.tableCompleted( "", true );
         }
     }
+
+    stream << RicWellLgrTools::amalgamKeyword( lgrInfos );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -930,6 +932,7 @@ std::map<QString, std::vector<LgrInfo>> RicExportLgrFeature::createLgrInfoListFo
         if ( auto localGrid = dynamic_cast<const RigLocalGrid*>( grid ) )
         {
             item.back().gradedRefinement = localGrid->refinement();
+            item.back().amalgamationName = QString::fromStdString( localGrid->amalgamationName() );
         }
     }
 

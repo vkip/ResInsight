@@ -22,6 +22,8 @@
 #include "cvfColor3.h"
 #include "cvfObject.h"
 
+#include "cafVecIjk.h"
+
 #include <vector>
 
 namespace cvf
@@ -39,6 +41,7 @@ class RimEclipseCase;
 class RimEclipseCellColors;
 class RimRefinementRegion;
 class RimRefinementRegionCollection;
+class RigRefinement;
 
 //==================================================================================================
 ///
@@ -82,10 +85,19 @@ private:
         size_t                    gridIndex; // Source grid index (always 0 for main grid today)
     };
 
-    static cvf::ref<cvf::Part>
-        createOuterBoxPart( const RimRefinementRegion* region, RimEclipseCase* eclipseCase, const caf::DisplayCoordTransform* coordTransform );
+    static cvf::ref<cvf::Part> createOuterBoxPart( const caf::VecIjk0&               rmin,
+                                                   const caf::VecIjk0&               rmax,
+                                                   const cvf::Color3f&               color,
+                                                   RimEclipseCase*                   eclipseCase,
+                                                   const caf::DisplayCoordTransform* coordTransform );
 
     void buildRegionCache( const RimRefinementRegion* region, RimEclipseCase* eclipseCase, const caf::DisplayCoordTransform* coordTransform );
+    void buildBoxCache( const caf::VecIjk0&               rmin,
+                        const caf::VecIjk0&               rmax,
+                        const RigRefinement*              refinement,
+                        const cvf::Color3f&               color,
+                        RimEclipseCase*                   eclipseCase,
+                        const caf::DisplayCoordTransform* coordTransform );
 
     void applyFlatColorToFacePart( RegionCache& cache );
 

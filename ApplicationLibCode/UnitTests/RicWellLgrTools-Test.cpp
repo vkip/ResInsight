@@ -256,3 +256,74 @@ TEST( RicFluxSectorModelToolsTest, DeckWithoutFluxnumIsUnchanged )
     ASSERT_TRUE( result.has_value() );
     EXPECT_TRUE( result->isEmpty() );
 }
+
+//--------------------------------------------------------------------------------------------------
+/// Factor of a cell in the boxes, checking that exactly one box holds it
+//--------------------------------------------------------------------------------------------------
+static std::array<int, 3> boxFactors( const std::vector<RicWellLgrTools::RefinedBox>& boxes, size_t i, size_t j, size_t k )
+{
+    std::array<int, 3> factors = { 0, 0, 0 };
+    int                count   = 0;
+    for ( const auto& box : boxes )
+    {
+        if ( i >= box.min.i() && i <= box.max.i() && j >= box.min.j() && j <= box.max.j() && k >= box.min.k() && k <= box.max.k() )
+        {
+            factors = box.factors;
+            count++;
+        }
+    }
+    EXPECT_LE( count, 1 );
+    return factors;
+}
+
+//--------------------------------------------------------------------------------------------------
+/// A vertical well: 9 x 9 in its cells, 6 x 6 in the ring around them, 3 x 3 in the next ring
+//--------------------------------------------------------------------------------------------------
+TEST( RicWellLgrToolsTest, WellRingBoxes )
+{
+    RicWellLgrTools::CellSet path;
+    for ( size_t k = 2; k <= 4; ++k )
+    {
+        path.insert( caf::VecIjk0( 10, 10, k ) );
+    }
+
+    const auto boxes = RicWellLgrTools::wellRingBoxes( path, RicWellLgrTools::RingSettings(), { 20, 20, 8 } );
+
+    using F = std::array<int, 3>;
+    EXPECT_EQ( boxFactors( boxes, 10, 10, 3 ), F( { 9, 9, 1 } ) );
+    EXPECT_EQ( boxFactors( boxes, 11, 9, 3 ), F( { 6, 6, 1 } ) );
+    EXPECT_EQ( boxFactors( boxes, 8, 12, 4 ), F( { 3, 3, 1 } ) );
+    EXPECT_EQ( boxFactors( boxes, 7, 10, 3 ), F( { 0, 0, 0 } ) );
+    EXPECT_EQ( boxFactors( boxes, 10, 10, 1 ), F( { 0, 0, 0 } ) ); // No vertical rings by default
+    EXPECT_EQ( boxFactors( boxes, 10, 10, 5 ), F( { 0, 0, 0 } ) );
+
+    // The layers of the path are covered alike, so the boxes span them
+    size_t cells = 0;
+    for ( const auto& box : boxes )
+    {
+        EXPECT_EQ( box.min.k(), 2u );
+        EXPECT_EQ( box.max.k(), 4u );
+        cells += ( box.max.i() - box.min.i() + 1 ) * ( box.max.j() - box.min.j() + 1 ) * ( box.max.k() - box.min.k() + 1 );
+    }
+    EXPECT_EQ( cells, 25u * 3u );
+
+    // Separate lateral settings, and one ring above and below refined 2 x vertically at the path
+    RicWellLgrTools::RingSettings settings;
+    settings.refinement = { 2, 3, 1 };
+    settings.layers     = { 2, 1, 2 };
+    const auto graded   = RicWellLgrTools::wellRingBoxes( { caf::VecIjk0( 0, 0, 0 ) }, settings, { 20, 20, 8 } );
+    EXPECT_EQ( boxFactors( graded, 0, 0, 0 ), F( { 4, 3, 2 } ) );
+    EXPECT_EQ( boxFactors( graded, 1, 1, 0 ), F( { 2, 1, 2 } ) );
+    EXPECT_EQ( boxFactors( graded, 0, 0, 1 ), F( { 4, 3, 1 } ) );
+    EXPECT_EQ( boxFactors( graded, 2, 0, 0 ), F( { 0, 0, 0 } ) );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+TEST( RicWellLgrToolsTest, AmalgamatedLgrName )
+{
+    EXPECT_EQ( RicWellLgrTools::amalgamatedLgrName( "LA4", 0, 9 ), QString( "LA401" ) );
+    EXPECT_EQ( RicWellLgrTools::amalgamatedLgrName( "LA4", 119, 150 ), QString( "LA4120" ) );
+    EXPECT_EQ( RicWellLgrTools::amalgamatedLgrName( "LPRODUCE", 4, 20 ), QString( "LPRODU05" ) );
+}

@@ -112,3 +112,19 @@ std::shared_ptr<const RigRefinement> RigLocalGrid::refinement() const
 {
     return m_refinement;
 }
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RigLocalGrid::setAmalgamationName( const std::string& name )
+{
+    m_amalgamationName = name;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+const std::string& RigLocalGrid::amalgamationName() const
+{
+    return m_amalgamationName;
+}

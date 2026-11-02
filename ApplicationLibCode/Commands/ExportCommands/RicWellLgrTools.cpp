@@ -33,10 +33,16 @@
 #include "RigReservoirGridTools.h"
 #include "RigUniformRefinement.h"
 #include "Well/RigSimWellData.h"
+#include "Well/RigWellLogExtractor.h"
+#include "Well/RigWellPath.h"
+#include "Well/RigWellPathIntersectionTools.h"
 #include "Well/RigWellResultFrame.h"
 #include "Well/RigWellResultPoint.h"
 
 #include "RimEclipseCase.h"
+#include "RimPerforationCollection.h"
+#include "RimPerforationInterval.h"
+#include "RimWellPath.h"
 
 #include <QRegularExpression>
 #include <QTextStream>
@@ -305,9 +311,8 @@ QString RicWellLgrTools::lgrName( const QString& baseName, size_t index, size_t 
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::vector<RicWellLgrTools::CellBox> RicWellLgrTools::wellCellBoxes( const CellSet&                wellCells,
-                                                                      const std::array<size_t, 3>& padding,
-                                                                      const std::array<size_t, 3>& gridCellCount )
+std::vector<RicWellLgrTools::CellBox>
+    RicWellLgrTools::wellCellBoxes( const CellSet& wellCells, const std::array<size_t, 3>& padding, const std::array<size_t, 3>& gridCellCount )
 {
     std::vector<CellBox> boxes;
     for ( const auto& c : wellCells )
@@ -418,7 +423,7 @@ std::expected<std::vector<LgrInfo>, QString>
     const std::array<size_t, 3> padding   = { static_cast<size_t>( std::max( settings.paddingIJ, 0 ) ),
                                               static_cast<size_t>( std::max( settings.paddingIJ, 0 ) ),
                                               static_cast<size_t>( std::max( settings.paddingK, 0 ) ) };
-    auto boxes = wellCellBoxes( allWellCells, padding, gridCount );
+    auto                        boxes     = wellCellBoxes( allWellCells, padding, gridCount );
 
     auto inBox = []( const caf::VecIjk0& c, const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax )
     {
@@ -637,45 +642,51 @@ std::expected<std::vector<LgrInfo>, QString>
     auto newLgrs = buildLgrsForSimulationWell( *eclipseCase, wellName, settings );
     if ( !newLgrs ) return newLgrs;
 
-    auto isNewName = [&newLgrs]( const std::string& gridName )
+    return replaceTemporaryLgrsOfWell( eclipseCase, wellName, std::move( *newLgrs ) );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<std::vector<LgrInfo>, QString>
+    RicWellLgrTools::replaceTemporaryLgrsOfWell( RimEclipseCase* eclipseCase, const QString& wellName, std::vector<LgrInfo> lgrs )
+{
+    if ( !eclipseCase || !eclipseCase->eclipseCaseData() ) return std::unexpected( "No case is available." );
+    const RigMainGrid& mainGrid = *eclipseCase->eclipseCaseData()->mainGrid();
+
+    std::set<QString> newNames;
+    for ( const auto& lgr : lgrs )
     {
-        return std::any_of( newLgrs->begin(),
-                            newLgrs->end(),
-                            [&gridName]( const LgrInfo& lgr )
-                            { return QString::fromStdString( gridName ).compare( lgr.name, Qt::CaseInsensitive ) == 0; } );
-    };
+        newNames.insert( lgr.name.toUpper() );
+    }
 
     // Deleting temporary LGRs reloads the grid, so the LGRs of other wells are recreated afterwards
-    std::vector<LgrInfo> lgrsToKeep;
-    int                  maxRealGridId = 0;
+    int maxRealGridId = 0;
+    for ( size_t g = 1; g < mainGrid.gridCount(); ++g )
     {
-        const RigMainGrid& mainGrid = *eclipseCase->eclipseCaseData()->mainGrid();
-        for ( size_t g = 1; g < mainGrid.gridCount(); ++g )
+        const RigGridBase* grid = mainGrid.gridByIndex( g );
+        if ( grid->isTempGrid() ) continue;
+        maxRealGridId = std::max( maxRealGridId, grid->gridId() );
+        if ( newNames.contains( QString::fromStdString( grid->gridName() ).toUpper() ) )
         {
-            const RigGridBase* grid = mainGrid.gridByIndex( g );
-            if ( !grid->isTempGrid() )
-            {
-                maxRealGridId = std::max( maxRealGridId, grid->gridId() );
-                if ( isNewName( grid->gridName() ) )
-                {
-                    return std::unexpected( QString( "The case already has an LGR named '%1'." ).arg( QString::fromStdString( grid->gridName() ) ) );
-                }
-                continue;
-            }
+            return std::unexpected( QString( "The case already has an LGR named '%1'." ).arg( QString::fromStdString( grid->gridName() ) ) );
+        }
+    }
 
-            const auto* localGrid = dynamic_cast<const RigLocalGrid*>( grid );
-            if ( !localGrid || localGrid->associatedWellPathName() == wellName.toStdString() || isNewName( grid->gridName() ) )
-            {
-                continue;
-            }
-            lgrsToKeep.push_back( lgrInfoFromTemporaryLgr( mainGrid, *localGrid ) );
+    std::vector<LgrInfo> lgrsToKeep;
+    for ( const auto& [otherWell, infos] : RicExportLgrFeature::createLgrInfoListForTemporaryLgrs( &mainGrid ) )
+    {
+        if ( otherWell == wellName ) continue;
+        for ( const auto& info : infos )
+        {
+            if ( !newNames.contains( info.name.toUpper() ) ) lgrsToKeep.push_back( info );
         }
     }
 
     RicDeleteTemporaryLgrsFeature::deleteAllTemporaryLgrs( eclipseCase );
 
     const size_t firstNew = lgrsToKeep.size();
-    lgrsToKeep.insert( lgrsToKeep.end(), newLgrs->begin(), newLgrs->end() );
+    lgrsToKeep.insert( lgrsToKeep.end(), std::make_move_iterator( lgrs.begin() ), std::make_move_iterator( lgrs.end() ) );
     int nextId = maxRealGridId + 1;
     for ( auto& lgr : lgrsToKeep )
     {
@@ -686,6 +697,23 @@ std::expected<std::vector<LgrInfo>, QString>
     RigReservoirGridTools::refreshEclipseCaseDataAndViews( eclipseCase );
 
     std::vector<LgrInfo> created( lgrsToKeep.begin() + firstNew, lgrsToKeep.end() );
+    if ( created.size() > 3 )
+    {
+        size_t cellCount = 0;
+        for ( const auto& lgr : created )
+        {
+            cellCount += lgr.lgrCellCount();
+        }
+        RiaLogging::info( QString( "Created %1 LGRs around well '%2' (%3 - %4), %5 cells" )
+                              .arg( created.size() )
+                              .arg( wellName )
+                              .arg( created.front().name )
+                              .arg( created.back().name )
+                              .arg( cellCount )
+                              .toStdString() );
+        return created;
+    }
+
     for ( const auto& lgr : created )
     {
         const auto cellCounts = lgr.lgrCellCounts();
@@ -705,6 +733,227 @@ std::expected<std::vector<LgrInfo>, QString>
     }
 
     return created;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::vector<RicWellLgrTools::RefinedBox>
+    RicWellLgrTools::wellRingBoxes( const CellSet& pathCells, const RingSettings& settings, const std::array<size_t, 3>& gridCellCount )
+{
+    std::vector<RefinedBox> boxes;
+    const int               lateralRings  = std::max( settings.layers[0], settings.layers[1] );
+    const int               verticalRings = settings.layers[2];
+    if ( pathCells.empty() || lateralRings < 1 || verticalRings < 1 ) return boxes;
+
+    const std::array<int, 3> reach = { lateralRings - 1, lateralRings - 1, verticalRings - 1 };
+    std::array<int, 3>       lo{}, hi{};
+    for ( int d = 0; d < 3; ++d )
+    {
+        lo[d] = std::numeric_limits<int>::max();
+        hi[d] = std::numeric_limits<int>::min();
+        for ( const auto& c : pathCells )
+        {
+            lo[d] = std::min( lo[d], static_cast<int>( c[d] ) - reach[d] );
+            hi[d] = std::max( hi[d], static_cast<int>( c[d] ) + reach[d] );
+        }
+        lo[d] = std::max( lo[d], 0 );
+        hi[d] = std::min( hi[d], static_cast<int>( gridCellCount[d] ) - 1 );
+    }
+    const std::array<int, 3> n     = { hi[0] - lo[0] + 1, hi[1] - lo[1] + 1, hi[2] - lo[2] + 1 };
+    const auto               index = [&]( int i, int j, int k ) { return ( i - lo[0] ) + n[0] * ( ( j - lo[1] ) + n[1] * ( k - lo[2] ) ); };
+
+    // The finest refinement any path cell gives each cell, per direction; 0 outside the rings
+    std::vector<std::array<int, 3>> factors( static_cast<size_t>( n[0] ) * n[1] * n[2], { 0, 0, 0 } );
+    for ( const auto& p : pathCells )
+    {
+        const int pi = static_cast<int>( p.i() ), pj = static_cast<int>( p.j() ), pk = static_cast<int>( p.k() );
+        for ( int k = std::max( pk - reach[2], lo[2] ); k <= std::min( pk + reach[2], hi[2] ); ++k )
+        {
+            const int fz = settings.refinement[2] * ( verticalRings - std::abs( k - pk ) );
+            for ( int j = std::max( pj - reach[1], lo[1] ); j <= std::min( pj + reach[1], hi[1] ); ++j )
+            {
+                for ( int i = std::max( pi - reach[0], lo[0] ); i <= std::min( pi + reach[0], hi[0] ); ++i )
+                {
+                    const int r  = std::max( std::abs( i - pi ), std::abs( j - pj ) );
+                    const int fx = r < settings.layers[0] ? settings.refinement[0] * ( settings.layers[0] - r ) : 1;
+                    const int fy = r < settings.layers[1] ? settings.refinement[1] * ( settings.layers[1] - r ) : 1;
+                    auto&     f  = factors[index( i, j, k )];
+                    f            = { std::max( f[0], fx ), std::max( f[1], fy ), std::max( f[2], fz ) };
+                }
+            }
+        }
+    }
+
+    // Boxes of equal refinement, grown along I, then J, then K
+    const auto        refined = [&]( const std::array<int, 3>& f ) { return f[0] > 1 || f[1] > 1 || f[2] > 1; };
+    std::vector<bool> used( factors.size(), false );
+    const auto        fits = [&]( int i0, int i1, int j0, int j1, int k0, int k1, const std::array<int, 3>& f )
+    {
+        for ( int k = k0; k <= k1; ++k )
+            for ( int j = j0; j <= j1; ++j )
+                for ( int i = i0; i <= i1; ++i )
+                {
+                    const int idx = index( i, j, k );
+                    if ( used[idx] || factors[idx] != f ) return false;
+                }
+        return true;
+    };
+    for ( int k = lo[2]; k <= hi[2]; ++k )
+    {
+        for ( int j = lo[1]; j <= hi[1]; ++j )
+        {
+            for ( int i = lo[0]; i <= hi[0]; ++i )
+            {
+                const int idx = index( i, j, k );
+                if ( used[idx] || !refined( factors[idx] ) ) continue;
+
+                const auto f  = factors[idx];
+                int        ie = i, je = j, ke = k;
+                while ( ie < hi[0] && fits( ie + 1, ie + 1, j, j, k, k, f ) )
+                    ++ie;
+                while ( je < hi[1] && fits( i, ie, je + 1, je + 1, k, k, f ) )
+                    ++je;
+                while ( ke < hi[2] && fits( i, ie, j, je, ke + 1, ke + 1, f ) )
+                    ++ke;
+
+                for ( int kk = k; kk <= ke; ++kk )
+                    for ( int jj = j; jj <= je; ++jj )
+                        for ( int ii = i; ii <= ie; ++ii )
+                            used[index( ii, jj, kk )] = true;
+
+                boxes.push_back( { caf::VecIjk0( i, j, k ), caf::VecIjk0( ie, je, ke ), f } );
+            }
+        }
+    }
+    return boxes;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+RicWellLgrTools::CellSet RicWellLgrTools::perforatedPathCells( RimEclipseCase& eclipseCase, const RimWellPath& wellPath )
+{
+    CellSet cells;
+
+    const RigEclipseCaseData* caseData = eclipseCase.eclipseCaseData();
+    const RigWellPath*        geometry = wellPath.wellPathGeometry();
+    if ( !caseData || !caseData->mainGrid() || !geometry ) return cells;
+
+    double startMd = std::numeric_limits<double>::max();
+    double endMd   = -std::numeric_limits<double>::max();
+    for ( const auto* perforation : wellPath.perforationIntervalCollection()->perforations() )
+    {
+        startMd = std::min( startMd, perforation->startMD() );
+        endMd   = std::max( endMd, perforation->endMD() );
+    }
+    if ( !( endMd > startMd ) ) return cells;
+
+    const auto [points, mds] = geometry->clippedPointSubset( startMd, endMd );
+    for ( const auto& intersection : RigWellPathIntersectionTools::findCellIntersectionInfosAlongPath( caseData, wellPath.name(), points, mds ) )
+    {
+        const size_t host = hostMainGridCellIndex( *caseData->mainGrid(), intersection.globCellIndex );
+        if ( auto ijk = caseData->mainGrid()->ijkFromCellIndex( host ) ) cells.insert( *ijk );
+    }
+    return cells;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RicWellLgrTools::amalgamatedLgrName( const QString& baseName, size_t index, size_t count )
+{
+    const int digits = std::max( 2, static_cast<int>( QString::number( count ).length() ) );
+    return baseName.left( 8 - digits ) + QString( "%1" ).arg( index + 1, digits, 10, QChar( '0' ) );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::expected<std::vector<LgrInfo>, QString> RicWellLgrTools::buildWellRefinementLgrs( RimEclipseCase&               eclipseCase,
+                                                                                       const QString&                wellName,
+                                                                                       const RimWellPath&            wellPath,
+                                                                                       const WellRefinementSettings& settings )
+{
+    const RigEclipseCaseData* caseData = eclipseCase.eclipseCaseData();
+    if ( !caseData || !caseData->mainGrid() ) return std::unexpected( "The case has no grid." );
+    const RigMainGrid& mainGrid = *caseData->mainGrid();
+
+    for ( int d = 0; d < 3; ++d )
+    {
+        if ( settings.rings.refinement[d] < 1 || settings.rings.layers[d] < 1 )
+        {
+            return std::unexpected( "The refinements and the numbers of layers must be at least 1." );
+        }
+    }
+
+    const CellSet pathCells = perforatedPathCells( eclipseCase, wellPath );
+    if ( pathCells.empty() ) return std::unexpected( QString( "The well path '%1' has no perforated cells." ).arg( wellPath.name() ) );
+
+    const auto boxes = wellRingBoxes( pathCells, settings.rings, { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() } );
+    if ( boxes.empty() ) return std::unexpected( "The settings refine no cells." );
+
+    const auto inBox = []( const caf::VecIjk0& c, const RefinedBox& box )
+    {
+        return c.i() >= box.min.i() && c.i() <= box.max.i() && c.j() >= box.min.j() && c.j() <= box.max.j() && c.k() >= box.min.k() &&
+               c.k() <= box.max.k();
+    };
+
+    // The boxes must not overlap the LGRs of other wells
+    for ( const auto& box : boxes )
+    {
+        for ( size_t k = box.min.k(); k <= box.max.k(); ++k )
+            for ( size_t j = box.min.j(); j <= box.max.j(); ++j )
+                for ( size_t i = box.min.i(); i <= box.max.i(); ++i )
+                {
+                    const RigGridBase* subGrid = mainGrid.cell( mainGrid.cellIndexFromIJK( i, j, k ) ).subGrid();
+                    if ( subGrid && subGrid->associatedWellPathName() != wellName.toStdString() )
+                    {
+                        return std::unexpected(
+                            QString( "The refinement around well '%1' would overlap the LGR '%2' at cell (%3, %4, %5)." )
+                                .arg( wellName )
+                                .arg( QString::fromStdString( subGrid->gridName() ) )
+                                .arg( i + 1 )
+                                .arg( j + 1 )
+                                .arg( k + 1 ) );
+                    }
+                }
+    }
+
+    // OPM Flow moves the connections of other wells in the boxes into the LGRs
+    for ( const auto& wellData : caseData->wellResults() )
+    {
+        if ( wellData->m_wellName == wellName ) continue;
+        for ( const auto& c : simulationWellCells( *caseData, wellData->m_wellName ) )
+        {
+            if ( std::none_of( boxes.begin(), boxes.end(), [&]( const RefinedBox& box ) { return inBox( c, box ); } ) ) continue;
+            RiaLogging::warning( QString( "The refinement around well '%1' holds connections of well '%2', e.g. at cell (%3, %4, %5)." )
+                                     .arg( wellName )
+                                     .arg( wellData->m_wellName )
+                                     .arg( c.i() + 1 )
+                                     .arg( c.j() + 1 )
+                                     .arg( c.k() + 1 )
+                                     .toStdString() );
+            break;
+        }
+    }
+
+    const QString baseName = settings.lgrName.isEmpty() ? defaultLgrName( wellName ) : settings.lgrName.left( 8 );
+
+    std::vector<LgrInfo> lgrs;
+    for ( size_t b = 0; b < boxes.size(); ++b )
+    {
+        const auto& box = boxes[b];
+        LgrInfo     info( 0,
+                      amalgamatedLgrName( baseName, b, boxes.size() ),
+                      wellName,
+                      cvf::Vec3st( box.factors[0], box.factors[1], box.factors[2] ),
+                      box.min,
+                      box.max );
+        info.amalgamationName = baseName;
+        lgrs.push_back( info );
+    }
+    return lgrs;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -824,5 +1073,38 @@ QString RicWellLgrTools::carfinBlock( const LgrInfo& lgrInfo, int maxWellCount )
     if ( lgrInfo.gradedRefinement ) text += gradingKeywords( *lgrInfo.gradedRefinement );
 
     text += "\nENDFIN\n";
+    return text;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RicWellLgrTools::amalgamKeyword( const std::vector<LgrInfo>& lgrInfos )
+{
+    std::map<QString, QStringList> amalgamations;
+    for ( const auto& lgrInfo : lgrInfos )
+    {
+        if ( !lgrInfo.amalgamationName.isEmpty() ) amalgamations[lgrInfo.amalgamationName].push_back( lgrInfo.name );
+    }
+    if ( amalgamations.empty() ) return {};
+
+    QString     text;
+    QTextStream stream( &text );
+    stream << "\n-- Amalgamated LGRs: " << amalgamations.begin()->first;
+    for ( auto it = std::next( amalgamations.begin() ); it != amalgamations.end(); ++it )
+    {
+        stream << ", " << it->first;
+    }
+    stream << "\nAMALGAM\n";
+    for ( const auto& [name, lgrNames] : amalgamations )
+    {
+        for ( int n = 0; n < lgrNames.size(); ++n )
+        {
+            stream << ( n % 8 == 0 ? "  " : " " ) << "'" << lgrNames[n] << "'";
+            if ( n % 8 == 7 ) stream << "\n";
+        }
+        stream << ( lgrNames.size() % 8 == 0 ? "  /\n" : " /\n" );
+    }
+    stream << "/\n";
     return text;
 }

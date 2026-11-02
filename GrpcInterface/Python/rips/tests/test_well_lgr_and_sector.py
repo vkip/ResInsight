@@ -172,3 +172,51 @@ def test_create_sector_model_for_well_needs_deck(rips_instance, initialize_test)
         )
         assert os.path.exists(result.deck_file)
         assert result.lgr_name == ""
+
+
+def test_create_well_refinement(rips_instance, initialize_test):
+    case, view = _load_case(rips_instance)
+
+    region = view.create_well_refinement(well_name="P3")
+    assert region.well_name == "P3"
+    values = list(region.boxes)
+    assert len(values) % 9 == 0
+    boxes = [values[n : n + 9] for n in range(0, len(values), 9)]
+
+    # 9 x 9 at the vertical well, 6 x 6 and 3 x 3 in the rings around it, unrefined vertically
+    refined = {}
+    for box in boxes:
+        hosts = (box[3] - box[0] + 1) * (box[4] - box[1] + 1) * (box[5] - box[2] + 1)
+        key = tuple(box[6:9])
+        refined[key] = refined.get(key, 0) + hosts
+    layers = refined[(9, 9, 1)]
+    assert refined == {(9, 9, 1): layers, (6, 6, 1): 8 * layers, (3, 3, 1): 16 * layers}
+    assert len(case.grids()) == 1 + len(boxes)
+
+    # Again with other settings: the region and its LGRs are replaced
+    region = view.create_well_refinement(
+        well_name="P3", lateral_refinement=2, lateral_layers=2, refinement_z=2
+    )
+    values = list(region.boxes)
+    factors = {tuple(values[n + 6 : n + 9]) for n in range(0, len(values), 9)}
+    assert factors == {(4, 4, 2), (2, 2, 2)}
+    assert len(case.grids()) == 1 + len(values) // 9
+
+    with tempfile.TemporaryDirectory(prefix="rips_sector") as export_folder:
+        result = view.create_sector_model_for_well(
+            well_name="P3", export_folder=export_folder, run_make_flux=False
+        )
+        grid_include = os.path.splitext(result.deck_file)[0] + "_GRID.inc"
+        with open(grid_include) as f:
+            text = f.read()
+        assert text.count("CARFIN") == len(values) // 9
+        assert "AMALGAM" in text
+
+
+def test_create_well_refinement_errors(rips_instance, initialize_test):
+    case, view = _load_case(rips_instance)
+
+    with pytest.raises(rips.RipsError, match="no well named"):
+        view.create_well_refinement(well_name="NO_SUCH_WELL")
+    with pytest.raises(rips.RipsError, match="at least 1"):
+        view.create_well_refinement(well_name="P3", lateral_layers=0)

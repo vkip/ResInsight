@@ -132,3 +132,30 @@ private:
     caf::PdmField<int>     m_lgrPaddingCells;
     caf::PdmField<bool>    m_runMakeFlux;
 };
+
+//==================================================================================================
+///
+//==================================================================================================
+class RimEclipseView_createWellRefinement : public caf::PdmObjectCreationMethod
+{
+    CAF_PDM_HEADER_INIT;
+
+public:
+    RimEclipseView_createWellRefinement( caf::PdmObjectHandle* self );
+
+    std::expected<caf::PdmObjectHandle*, QString> execute() override;
+    QString                                       classKeywordReturnedType() const override;
+
+private:
+    caf::PdmField<QString> m_wellName;
+    caf::PdmField<int>     m_timeStep;
+    caf::PdmField<QString> m_lgrName;
+    caf::PdmField<int>     m_lateralRefinement;
+    caf::PdmField<int>     m_lateralLayers;
+    caf::PdmField<int>     m_refinementX;
+    caf::PdmField<int>     m_layersX;
+    caf::PdmField<int>     m_refinementY;
+    caf::PdmField<int>     m_layersY;
+    caf::PdmField<int>     m_refinementZ;
+    caf::PdmField<int>     m_layersZ;
+};

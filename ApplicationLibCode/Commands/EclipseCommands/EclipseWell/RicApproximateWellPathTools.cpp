@@ -37,10 +37,12 @@
 #include "Well/RigWellResultPoint.h"
 
 #include "RimEclipseCase.h"
+#include "RimEclipseView.h"
 #include "RimPerforationCollection.h"
 #include "RimPerforationInterval.h"
 #include "RimPointBasedWellPath.h"
 #include "RimProject.h"
+#include "RimSimWellInView.h"
 #include "RimWellPathCollection.h"
 #include "RimWellPathCompletionSettings.h"
 
@@ -527,4 +529,21 @@ std::expected<RimWellPath*, QString>
     }
 
     return wellPath;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+int RicApproximateWellPathTools::viewTimeStepWithConnections( const RimSimWellInView& simWell )
+{
+    auto* view = simWell.firstAncestorOrThisOfType<RimEclipseView>();
+    if ( !view || !simWell.simWellData() ) return -1;
+
+    const int timeStep = view->currentTimeStep();
+    if ( timeStep < 0 || !simWell.simWellData()->hasWellResult( timeStep ) ) return -1;
+
+    const auto* frame = simWell.simWellData()->wellResultFrame( timeStep );
+    if ( !frame ) return -1;
+    const auto points = frame->allResultPoints();
+    return std::any_of( points.begin(), points.end(), []( const RigWellResultPoint& p ) { return p.isCell(); } ) ? timeStep : -1;
 }

@@ -34,6 +34,7 @@
 
 class LgrInfo;
 class RigEclipseCaseData;
+class RimWellPath;
 class RigLocalGrid;
 class RigMainGrid;
 class RimEclipseCase;
@@ -96,8 +97,7 @@ using CellBox = std::pair<caf::VecIjk0, caf::VecIjk0>;
 // Boxes around the well cells, padded and clipped to the grid, merging boxes that overlap or touch, or whose
 // joined box holds at most 1.5 times their cells. A well with connections in separate parts of the grid, e.g.
 // in two zones, gets one box per part.
-std::vector<CellBox>
-    wellCellBoxes( const CellSet& wellCells, const std::array<size_t, 3>& padding, const std::array<size_t, 3>& gridCellCount );
+std::vector<CellBox> wellCellBoxes( const CellSet& wellCells, const std::array<size_t, 3>& padding, const std::array<size_t, 3>& gridCellCount );
 
 // One LGR per box of wellCellBoxes()
 std::expected<std::vector<LgrInfo>, QString>
@@ -110,6 +110,47 @@ std::expected<std::vector<LgrInfo>, QString>
 std::vector<const RigLocalGrid*> temporaryLgrsForWell( const RigMainGrid& mainGrid, const QString& wellName );
 LgrInfo                          lgrInfoFromTemporaryLgr( const RigMainGrid& mainGrid, const RigLocalGrid& localGrid );
 
+// Refinement in rings around the cells of a well path, per direction (I, J, K): the path cells are refined
+// refinement * layers times, the ring around them refinement * (layers - 1) times, and so on, laterally in
+// rings of cells around the path cells in the same layer, vertically in layers above and below them.
+struct RingSettings
+{
+    std::array<int, 3> refinement = { 3, 3, 1 };
+    std::array<int, 3> layers     = { 3, 3, 1 };
+};
+
+struct RefinedBox
+{
+    caf::VecIjk0       min;
+    caf::VecIjk0       max;
+    std::array<int, 3> factors;
+};
+
+// The refined cells around the path cells, as boxes of equal refinement covering them
+std::vector<RefinedBox> wellRingBoxes( const CellSet& pathCells, const RingSettings& settings, const std::array<size_t, 3>& gridCellCount );
+
+// Main grid cells along the well path from the start of its first perforation to the end of its last
+CellSet perforatedPathCells( RimEclipseCase& eclipseCase, const RimWellPath& wellPath );
+
+// Name of LGR number index (zero-based) of count LGRs amalgamated under one base name, at most eight characters
+QString amalgamatedLgrName( const QString& baseName, size_t index, size_t count );
+
+struct WellRefinementSettings
+{
+    QString      lgrName; // Empty: derived from the well name
+    RingSettings rings;
+};
+
+// One LGR per box of wellRingBoxes() around the perforated part of the well path, amalgamated under the base name
+std::expected<std::vector<LgrInfo>, QString> buildWellRefinementLgrs( RimEclipseCase&               eclipseCase,
+                                                                      const QString&                wellName,
+                                                                      const RimWellPath&            wellPath,
+                                                                      const WellRefinementSettings& settings );
+
+// Replaces the temporary LGRs of the well by the given ones, keeping the temporary LGRs of other wells
+std::expected<std::vector<LgrInfo>, QString>
+    replaceTemporaryLgrsOfWell( RimEclipseCase* eclipseCase, const QString& wellName, std::vector<LgrInfo> lgrs );
+
 // Number of simulation wells with connections in the box, at least one
 int wellCountInBox( const RigEclipseCaseData& caseData, const caf::VecIjk0& boxMin, const caf::VecIjk0& boxMax );
 
@@ -121,4 +162,7 @@ QString gradingKeywords( const RigRefinement& refinement );
 
 // CARFIN ... ENDFIN, including the grading keywords
 QString carfinBlock( const LgrInfo& lgrInfo, int maxWellCount );
+
+// AMALGAM with one record per amalgamation name of the LGRs, or an empty string if there is none
+QString amalgamKeyword( const std::vector<LgrInfo>& lgrInfos );
 } // namespace RicWellLgrTools

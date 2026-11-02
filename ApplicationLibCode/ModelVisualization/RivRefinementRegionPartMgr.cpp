@@ -124,6 +124,22 @@ void RivRefinementRegionPartMgr::buildRegionCache( const RimRefinementRegion*   
                                                    RimEclipseCase*                   eclipseCase,
                                                    const caf::DisplayCoordTransform* coordTransform )
 {
+    for ( const auto& box : region->previewBoxes() )
+    {
+        buildBoxCache( box.min, box.max, box.refinement.get(), region->previewColor(), eclipseCase, coordTransform );
+    }
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+void RivRefinementRegionPartMgr::buildBoxCache( const caf::VecIjk0&               rmin,
+                                                const caf::VecIjk0&               rmax,
+                                                const RigRefinement*              refinement,
+                                                const cvf::Color3f&               color,
+                                                RimEclipseCase*                   eclipseCase,
+                                                const caf::DisplayCoordTransform* coordTransform )
+{
     auto* caseData = eclipseCase->eclipseCaseData();
     if ( !caseData ) return;
     auto* mainGrid = caseData->mainGrid();
@@ -134,8 +150,6 @@ void RivRefinementRegionPartMgr::buildRegionCache( const RimRefinementRegion*   
     const size_t gridK = mainGrid->cellCountK();
     if ( gridI == 0 || gridJ == 0 || gridK == 0 ) return;
 
-    const auto   rmin = region->ijkMin();
-    const auto   rmax = region->ijkMax();
     const size_t minI = std::min( rmin.x(), gridI - 1 );
     const size_t minJ = std::min( rmin.y(), gridJ - 1 );
     const size_t minK = std::min( rmin.z(), gridK - 1 );
@@ -143,13 +157,12 @@ void RivRefinementRegionPartMgr::buildRegionCache( const RimRefinementRegion*   
     const size_t maxJ = std::min( rmax.y(), gridJ - 1 );
     const size_t maxK = std::min( rmax.z(), gridK - 1 );
 
-    auto refinement = region->effectiveRefinement();
     if ( !refinement )
     {
         RegionCache cache;
-        cache.fallbackColor = region->previewColor();
+        cache.fallbackColor = color;
         cache.gridIndex     = 0;
-        cache.outerBoxPart  = createOuterBoxPart( region, eclipseCase, coordTransform );
+        cache.outerBoxPart  = createOuterBoxPart( rmin, rmax, color, eclipseCase, coordTransform );
         if ( cache.outerBoxPart.notNull() ) m_regionCaches.push_back( cache );
         return;
     }
@@ -168,9 +181,9 @@ void RivRefinementRegionPartMgr::buildRegionCache( const RimRefinementRegion*   
     if ( totalRefined > MAX_CELLS_FOR_PER_CELL_GEOMETRY )
     {
         RegionCache cache;
-        cache.fallbackColor = region->previewColor();
+        cache.fallbackColor = color;
         cache.gridIndex     = 0;
-        cache.outerBoxPart  = createOuterBoxPart( region, eclipseCase, coordTransform );
+        cache.outerBoxPart  = createOuterBoxPart( rmin, rmax, color, eclipseCase, coordTransform );
         if ( cache.outerBoxPart.notNull() ) m_regionCaches.push_back( cache );
         return;
     }
@@ -277,7 +290,7 @@ void RivRefinementRegionPartMgr::buildRegionCache( const RimRefinementRegion*   
     cache.facePart            = facePart;
     cache.meshPart            = meshPart;
     cache.parentGlobalCellIdx = std::move( parentCellIdx );
-    cache.fallbackColor       = region->previewColor();
+    cache.fallbackColor       = color;
     cache.gridIndex           = 0;
     cache.textureCoords       = new cvf::Vec2fArray;
     cache.textureCoords->resize( vertices.size() );
@@ -371,7 +384,9 @@ void RivRefinementRegionPartMgr::updateCellResultColor( size_t timeStepIndex, Ri
 //--------------------------------------------------------------------------------------------------
 /// Fallback for very large regions: an 8-vertex wireframe box at the region's extremes.
 //--------------------------------------------------------------------------------------------------
-cvf::ref<cvf::Part> RivRefinementRegionPartMgr::createOuterBoxPart( const RimRefinementRegion*        region,
+cvf::ref<cvf::Part> RivRefinementRegionPartMgr::createOuterBoxPart( const caf::VecIjk0&               rmin,
+                                                                    const caf::VecIjk0&               rmax,
+                                                                    const cvf::Color3f&               color,
                                                                     RimEclipseCase*                   eclipseCase,
                                                                     const caf::DisplayCoordTransform* coordTransform )
 {
@@ -384,8 +399,6 @@ cvf::ref<cvf::Part> RivRefinementRegionPartMgr::createOuterBoxPart( const RimRef
     const size_t gridJ = mainGrid->cellCountJ();
     const size_t gridK = mainGrid->cellCountK();
 
-    const auto   rmin = region->ijkMin();
-    const auto   rmax = region->ijkMax();
     const size_t minI = std::min( rmin.x(), gridI - 1 );
     const size_t minJ = std::min( rmin.y(), gridJ - 1 );
     const size_t minK = std::min( rmin.z(), gridK - 1 );
@@ -423,5 +436,5 @@ cvf::ref<cvf::Part> RivRefinementRegionPartMgr::createOuterBoxPart( const RimRef
         vertices.push_back( cvf::Vec3f( display ) );
     }
 
-    return RivBoxGeometryGenerator::createBoxFromVertices( vertices, region->previewColor() );
+    return RivBoxGeometryGenerator::createBoxFromVertices( vertices, color );
 }

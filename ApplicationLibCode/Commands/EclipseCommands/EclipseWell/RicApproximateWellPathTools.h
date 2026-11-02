@@ -23,6 +23,7 @@
 #include <expected>
 
 class RimEclipseCase;
+class RimSimWellInView;
 class RimWellPath;
 
 //==================================================================================================
@@ -42,4 +43,7 @@ QString wellPathName( const QString& simulationWellName );
 // Time step of the connections, or the last time step with connections if negative. A previous approximate
 // well path of the well is replaced.
 std::expected<RimWellPath*, QString> createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep );
+
+// The time step of the well's view if the well has connections then, else -1
+int viewTimeStepWithConnections( const RimSimWellInView& simWell );
 } // namespace RicApproximateWellPathTools

@@ -48,6 +48,10 @@ public:
     void                                 setRefinement( std::shared_ptr<const RigRefinement> refinement );
     std::shared_ptr<const RigRefinement> refinement() const;
 
+    // LGRs with the same non-empty name are amalgamated (AMALGAM)
+    void               setAmalgamationName( const std::string& name );
+    const std::string& amalgamationName() const;
+
 private:
     RigGridBase* m_parentGrid;
     bool         m_isTempGrid;
@@ -55,4 +59,5 @@ private:
     std::string  m_associatedWellPathName;
 
     std::shared_ptr<const RigRefinement> m_refinement;
+    std::string                          m_amalgamationName;
 };

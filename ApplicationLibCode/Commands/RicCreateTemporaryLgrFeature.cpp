@@ -154,6 +154,7 @@ RigGridBase* RicCreateTemporaryLgrFeature::createLgrForGrid( const LgrInfo& lgrI
     RigLocalGrid* localGrid = new RigLocalGrid( mainGrid );
     localGrid->setAsTempGrid( true );
     localGrid->setAssociatedWellPathName( lgrInfo.associatedWellPathName.toStdString() );
+    localGrid->setAmalgamationName( lgrInfo.amalgamationName.toStdString() );
     localGrid->setGridId( lgrId );
     localGrid->setIndexToStartOfCells( totalCellCount );
     localGrid->setGridName( lgrInfo.name.toStdString() );

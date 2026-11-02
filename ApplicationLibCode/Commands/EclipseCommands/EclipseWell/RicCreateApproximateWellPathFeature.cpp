@@ -42,26 +42,6 @@
 
 CAF_CMD_SOURCE_INIT( RicCreateApproximateWellPathFeature, "RicCreateApproximateWellPathFeature" );
 
-namespace
-{
-//--------------------------------------------------------------------------------------------------
-/// The time step of the view, if the well has connections then, else the last time step with connections
-//--------------------------------------------------------------------------------------------------
-int connectionTimeStep( const RimSimWellInView& simWell )
-{
-    auto* view = simWell.firstAncestorOrThisOfType<RimEclipseView>();
-    if ( !view || !simWell.simWellData() ) return -1;
-
-    const int timeStep = view->currentTimeStep();
-    if ( timeStep < 0 || !simWell.simWellData()->hasWellResult( timeStep ) ) return -1;
-
-    const auto* frame = simWell.simWellData()->wellResultFrame( timeStep );
-    if ( !frame ) return -1;
-    const auto points = frame->allResultPoints();
-    return std::any_of( points.begin(), points.end(), []( const RigWellResultPoint& p ) { return p.isCell(); } ) ? timeStep : -1;
-}
-} // namespace
-
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
@@ -71,7 +51,10 @@ void RicCreateApproximateWellPathFeature::onActionTriggered( bool isChecked )
     for ( RimSimWellInView* simWell : RicEclipseWellFeatureImpl::selectedWells() )
     {
         auto* eclipseCase = simWell->firstAncestorOrThisOfType<RimEclipseCase>();
-        auto wellPath = RicApproximateWellPathTools::createApproximateWellPath( eclipseCase, simWell->name(), connectionTimeStep( *simWell ) );
+        auto  wellPath =
+            RicApproximateWellPathTools::createApproximateWellPath( eclipseCase,
+                                                                    simWell->name(),
+                                                                    RicApproximateWellPathTools::viewTimeStepWithConnections( *simWell ) );
         if ( !wellPath )
         {
             RiaLogging::error( wellPath.error().toStdString() );

@@ -26,6 +26,7 @@
 #include "cvfColor3.h"
 
 #include <memory>
+#include <vector>
 
 class RicRefinementSettings;
 class RigMainGrid;
@@ -68,6 +69,19 @@ public:
 
     // Build the refinement for this region alone, sized to its own bounds.
     std::unique_ptr<RigRefinement> effectiveRefinement() const;
+
+    struct PreviewBox
+    {
+        caf::VecIjk0                   min;
+        caf::VecIjk0                   max;
+        std::shared_ptr<RigRefinement> refinement;
+    };
+
+    // The refined boxes drawn in the 3D view
+    virtual std::vector<PreviewBox> previewBoxes() const;
+
+    // Whether 'Export Sector Model' can refine the exported grid by this region
+    virtual bool isSectorGridRefinement() const;
 
     // Access the embedded refinement settings (used by the collection to assemble combined refinement).
     RicRefinementSettings* refinementSettings() const;

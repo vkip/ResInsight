@@ -102,6 +102,9 @@ public:
 
     // Per-cell subdivision relative to the LGR box (NXFIN/HXFIN etc.). Overrides the uniform refinement when set.
     std::shared_ptr<const RigRefinement> gradedRefinement;
+
+    // LGRs with the same non-empty name are amalgamated (AMALGAM)
+    QString amalgamationName;
 };
 
 //==================================================================================================

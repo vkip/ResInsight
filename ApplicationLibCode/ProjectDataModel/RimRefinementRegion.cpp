@@ -21,6 +21,7 @@
 #include "ExportCommands/RicRefinementSettings.h"
 
 #include "RigMainGrid.h"
+#include "RigRefinement.h"
 
 #include "Rim3dView.h"
 #include "RimEclipseCase.h"
@@ -179,6 +180,22 @@ std::unique_ptr<RigRefinement> RimRefinementRegion::effectiveRefinement() const
 {
     m_refinementSettings->setSectorBounds( ijkMin(), ijkMax() );
     return m_refinementSettings->effectiveRefinement();
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+std::vector<RimRefinementRegion::PreviewBox> RimRefinementRegion::previewBoxes() const
+{
+    return { PreviewBox{ ijkMin(), ijkMax(), std::shared_ptr<RigRefinement>( effectiveRefinement() ) } };
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+bool RimRefinementRegion::isSectorGridRefinement() const
+{
+    return true;
 }
 
 //--------------------------------------------------------------------------------------------------

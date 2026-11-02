@@ -392,7 +392,7 @@ void RicExportSectorModelUi::setEclipseView( RimEclipseView* view )
     {
         for ( auto* region : collection->regions() )
         {
-            if ( region != nullptr ) m_selectedRegions.push_back( region );
+            if ( region != nullptr && region->isSectorGridRefinement() ) m_selectedRegions.push_back( region );
         }
     }
 }
@@ -569,7 +569,7 @@ QList<caf::PdmOptionItemInfo> RicExportSectorModelUi::calculateValueOptions( con
             {
                 for ( auto* region : collection->regions() )
                 {
-                    if ( !region ) continue;
+                    if ( !region || !region->isSectorGridRefinement() ) continue;
                     options.push_back( caf::PdmOptionItemInfo( region->regionName(), region ) );
                 }
             }

@@ -415,7 +415,7 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
     addLaterallyExpanded( wellCells, settings.marginCells, mainGrid, required );
 
     // LGRs around the well are kept away from the sector boundary
-    CellSet  lgrWithPadding;
+    CellSet     lgrWithPadding;
     QStringList lgrNames;
     for ( const auto* wellLgr : RicWellLgrTools::temporaryLgrsForWell( mainGrid, settings.wellName ) )
     {
@@ -439,7 +439,7 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
         caf::VecIjk0 paddedMax( info.mainGridEndCell.i() + pad,
                                 info.mainGridEndCell.j() + pad,
                                 std::min( info.mainGridEndCell.k() + pad, mainGrid.cellCountK() - 1 ) );
-        const auto padded = boxCells( paddedMin, paddedMax );
+        const auto   padded = boxCells( paddedMin, paddedMax );
         lgrWithPadding.insert( padded.begin(), padded.end() );
     }
     required.insert( lgrWithPadding.begin(), lgrWithPadding.end() );
@@ -988,9 +988,28 @@ std::expected<void, QString> RicFluxSectorModelTools::addLgrDimensions( RifOpmFl
         if ( record.getItem( L::MAXCLS::itemName ).hasValue( 0 ) ) cellCount += record.getItem( L::MAXCLS::itemName ).get<int>( 0 );
     }
 
+    std::map<QString, int> amalgamations;
+    for ( const auto& lgrInfo : lgrInfos )
+    {
+        if ( !lgrInfo.amalgamationName.isEmpty() ) amalgamations[lgrInfo.amalgamationName]++;
+    }
+    int largestAmalgamation = 0;
+    for ( const auto& [name, count] : amalgamations )
+    {
+        largestAmalgamation = std::max( largestAmalgamation, count );
+    }
+
+    std::vector<Opm::DeckItem> items = { RifOpmDeckTools::item( L::MAXLGR::itemName, lgrCount ),
+                                         RifOpmDeckTools::item( L::MAXCLS::itemName, cellCount ) };
+    if ( !amalgamations.empty() )
+    {
+        items.push_back( RifOpmDeckTools::defaultItem( L::MCOARS::itemName ) );
+        items.push_back( RifOpmDeckTools::item( L::MAMALG::itemName, static_cast<int>( amalgamations.size() ) ) );
+        items.push_back( RifOpmDeckTools::item( L::MXLALG::itemName, largestAmalgamation ) );
+    }
+
     Opm::DeckKeyword keyword( ( L() ) );
-    keyword.addRecord( Opm::DeckRecord{
-        { RifOpmDeckTools::item( L::MAXLGR::itemName, lgrCount ), RifOpmDeckTools::item( L::MAXCLS::itemName, cellCount ) } } );
+    keyword.addRecord( Opm::DeckRecord{ std::move( items ) } );
 
     if ( !deckFile.replaceKeyword( "RUNSPEC", keyword ) ) return std::unexpected( "The deck has no RUNSPEC section." );
     return {};
@@ -1145,19 +1164,22 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
                                                                                               lgrInfo.mainGridEndCell ) );
         }
 
+        gridText += RicWellLgrTools::amalgamKeyword( lgrInfos );
+
         if ( auto added = addLgrDimensions( deck, lgrInfos ); !added ) return std::unexpected( added.error() );
 
         // A well in several LGRs, partly outside its LGR or with segments keeps its COMPDAT (and COMPSEGS)
-        const auto& lgr          = lgrInfos.front();
-        const bool  allInOneLgr  = lgrInfos.size() == 1 &&
-                                 std::ranges::all_of( RicWellLgrTools::simulationWellCells( *eclipseCase->eclipseCaseData(), settings.wellName ),
-                                                      [&lgr]( const caf::VecIjk0& c )
-                                                      {
-                                                          return c.i() >= lgr.mainGridStartCell.i() && c.i() <= lgr.mainGridEndCell.i() &&
-                                                                 c.j() >= lgr.mainGridStartCell.j() && c.j() <= lgr.mainGridEndCell.j() &&
-                                                                 c.k() >= lgr.mainGridStartCell.k() && c.k() <= lgr.mainGridEndCell.k();
-                                                      } );
-        const bool  multiSegment = isMultiSegmentWell( deck, settings.wellName );
+        const auto& lgr = lgrInfos.front();
+        const bool  allInOneLgr =
+            lgrInfos.size() == 1 &&
+            std::ranges::all_of( RicWellLgrTools::simulationWellCells( *eclipseCase->eclipseCaseData(), settings.wellName ),
+                                 [&lgr]( const caf::VecIjk0& c )
+                                 {
+                                     return c.i() >= lgr.mainGridStartCell.i() && c.i() <= lgr.mainGridEndCell.i() &&
+                                            c.j() >= lgr.mainGridStartCell.j() && c.j() <= lgr.mainGridEndCell.j() &&
+                                            c.k() >= lgr.mainGridStartCell.k() && c.k() <= lgr.mainGridEndCell.k();
+                                 } );
+        const bool multiSegment = isMultiSegmentWell( deck, settings.wellName );
         if ( allInOneLgr && !multiSegment )
         {
             auto converted = convertWellToLgr( deck, eclipseCase, settings.wellName, lgrInfos.front() );
@@ -1168,8 +1190,8 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
             result.warnings.push_back( QString( "Well '%1' %2, so its connections are kept as COMPDAT. OPM Flow moves the connections "
                                                 "in the LGRs %3 into them; other simulators need WELSPECL/COMPDATL%4." )
                                            .arg( settings.wellName )
-                                           .arg( multiSegment       ? "is a multi-segment well"
-                                                 : allInOneLgr      ? ""
+                                           .arg( multiSegment          ? "is a multi-segment well"
+                                                 : allInOneLgr         ? ""
                                                  : lgrInfos.size() > 1 ? "has several LGRs"
                                                                        : "has connections outside its LGR" )
                                            .arg( result.lgrNames.join( ", " ) )
