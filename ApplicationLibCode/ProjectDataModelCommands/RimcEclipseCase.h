@@ -328,7 +328,6 @@ public:
 private:
     caf::PdmField<QString> m_wellName;
     caf::PdmField<int>     m_timeStep;
-    caf::PdmField<bool>    m_throughCellFaces;
 };
 
 //==================================================================================================

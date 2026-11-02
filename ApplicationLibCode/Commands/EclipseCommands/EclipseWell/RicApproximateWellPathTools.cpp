@@ -127,31 +127,7 @@ std::vector<double> faceCrossings( const cvf::Vec3d& p1, const cvf::Vec3d& p2, c
 }
 
 //--------------------------------------------------------------------------------------------------
-/// The centre of the face of the cell that the direction points at most
-//--------------------------------------------------------------------------------------------------
-cvf::Vec3d exitFaceCenter( const RigCell& cell, const cvf::Vec3d& direction )
-{
-    const cvf::Vec3d center = cell.center();
-    cvf::Vec3d       unitDirection( direction );
-    if ( !unitDirection.normalize() ) unitDirection = cvf::Vec3d( 0, 0, -1 );
-
-    cvf::Vec3d best      = center;
-    double     bestAlign = -std::numeric_limits<double>::max();
-    for ( FaceType face : { FaceType::NEG_I, FaceType::POS_I, FaceType::NEG_J, FaceType::POS_J, FaceType::NEG_K, FaceType::POS_K } )
-    {
-        cvf::Vec3d toFace = cell.faceCenter( face ) - center;
-        if ( !toFace.normalize() ) continue;
-        const double align = toFace * unitDirection;
-        if ( align > bestAlign )
-        {
-            bestAlign = align;
-            best      = cell.faceCenter( face );
-        }
-    }
-    return best;
-}
-
-//--------------------------------------------------------------------------------------------------
+/// A short and smooth path//--------------------------------------------------------------------------------------------------
 /// A short and smooth path through the connected cells, in connection order: straight inside each cell, from
 /// the face where it enters the cell to the face where it leaves it. The path minimises its length plus a penalty on
 /// its bends. Consecutive cells that touch share the
@@ -166,7 +142,13 @@ struct FaceRoute
     std::vector<std::pair<size_t, size_t>> cellNodes; // entry and exit node of each cell
 };
 
-FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cells )
+// What the path should match in a connected cell, when known: the length of the path in it
+struct CellTarget
+{
+    std::optional<double> length;
+};
+
+FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cells, const std::vector<CellTarget>& targets )
 {
     constexpr double edgeMargin = 0.05; // crossing points are kept this far (in face parameters) from the face edges
     constexpr int    samples    = 9; // per face direction and refinement pass
@@ -302,10 +284,15 @@ FaceRoute faceRoute( const RigMainGrid& mainGrid, const std::vector<size_t>& cel
 
     // The cell that the segment ending at each node runs through, if any (not between cells that do not touch)
     std::vector<std::optional<std::array<cvf::Vec3d, 8>>> segmentCell( nodes.size() );
+    std::vector<std::optional<size_t>>                    segmentConnection( nodes.size() );
     for ( size_t c = 0; c < cells.size(); ++c )
     {
         const auto [entry, exit] = route.cellNodes[c];
-        if ( exit == entry + 1 ) segmentCell[exit] = mainGrid.cellCornerVertices( cells[c] );
+        if ( exit == entry + 1 )
+        {
+            segmentCell[exit]       = mainGrid.cellCornerVertices( cells[c] );
+            segmentConnection[exit] = c;
+        }
     }
     // A segment between points on the faces of a cell must not leave it, which it can through the curved faces of thin
     // cells at grazing angles
@@ -497,10 +484,8 @@ QString RicApproximateWellPathTools::wellPathName( const QString& simulationWell
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase,
-                                                                                             const QString&  simulationWellName,
-                                                                                             int             timeStep,
-                                                                                             bool            throughCellFaces )
+std::expected<RimWellPath*, QString>
+    RicApproximateWellPathTools::createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep )
 {
     if ( !eclipseCase || !eclipseCase->eclipseCaseData() || !eclipseCase->eclipseCaseData()->mainGrid() )
     {
@@ -592,7 +577,26 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
             QString( "Well '%1' has no connections in the grid at %2." ).arg( simulationWellName ).arg( date.toString( Qt::ISODate ) ) );
     }
 
-    // The path: from sea level above the well head to the top of its column, then through the cell centres
+    // The well path, new or replacing a previous approximation
+    const QString name     = wellPathName( simulationWellName );
+    auto*         existing = wellPathCollection->wellPathByName( name );
+    auto*         wellPath = dynamic_cast<RimPointBasedWellPath*>( existing );
+    if ( existing && !wellPath )
+    {
+        return std::unexpected( QString( "The project has a well path named '%1' that is not an approximate well path." ).arg( name ) );
+    }
+    if ( !wellPath )
+    {
+        wellPath = new RimPointBasedWellPath();
+        wellPath->setName( name );
+        wellPath->setWellPathColor(
+            RiaColorTables::editableWellPathsPaletteColors().cycledColor3f( wellPathCollection->allWellPaths().size() ) );
+        wellPath->setUnitSystem( caseData->unitsType() );
+        wellPathCollection->addWellPath( wellPath, false );
+    }
+    const double defaultDiameter = caseData->unitsType() == RiaDefines::EclipseUnitSystem::UNITS_FIELD ? 0.709 : 0.216;
+
+    // The path: from sea level above the well head (or the first connected cell), then through the connected cells
     size_t headCell = connectionCells.front().cellIndex;
     if ( well->headI >= 0 && well->headJ >= 0 && static_cast<size_t>( well->headI ) < mainGrid.cellCountI() &&
          static_cast<size_t>( well->headJ ) < mainGrid.cellCountJ() )
@@ -616,16 +620,15 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
     points.emplace_back( headTop.x(), headTop.y(), std::max( 0.0, headTop.z() + 1.0 ) );
     points.push_back( headTop );
 
-    std::vector<size_t>                    centerPointIndices;
-    std::vector<std::pair<size_t, size_t>> cellPointIndices; // entry and exit point of each cell, through cell faces
-    if ( throughCellFaces )
+    std::vector<std::pair<size_t, size_t>> cellPointIndices; // entry and exit point of each cell
     {
         std::vector<size_t> cells;
         for ( const auto& connectionCell : connectionCells )
         {
             cells.push_back( connectionCell.cellIndex );
         }
-        const FaceRoute route = faceRoute( mainGrid, cells );
+        std::vector<CellTarget> targets( cells.size() );
+        const FaceRoute         route = faceRoute( mainGrid, cells, targets );
 
         // Straight down to the first cell when the well head is above it
         const auto headIjk  = mainGrid.ijkFromCellIndex( headCell );
@@ -645,34 +648,7 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
         cvf::Vec3d direction = points.back() - points[points.size() - 2];
         if ( direction.normalize() ) points.push_back( points.back() + direction );
     }
-    else
-    {
-        for ( const auto& connectionCell : connectionCells )
-        {
-            centerPointIndices.push_back( points.size() );
-            points.push_back( mainGrid.cell( connectionCell.cellIndex ).center() );
-        }
-        const RigCell& last = mainGrid.cell( connectionCells.back().cellIndex );
-        points.push_back( exitFaceCenter( last, points.back() - points[points.size() - 2] ) );
-    }
 
-    // The well path, new or replacing a previous approximation
-    const QString name     = wellPathName( simulationWellName );
-    auto*         existing = wellPathCollection->wellPathByName( name );
-    auto*         wellPath = dynamic_cast<RimPointBasedWellPath*>( existing );
-    if ( existing && !wellPath )
-    {
-        return std::unexpected( QString( "The project has a well path named '%1' that is not an approximate well path." ).arg( name ) );
-    }
-    if ( !wellPath )
-    {
-        wellPath = new RimPointBasedWellPath();
-        wellPath->setName( name );
-        wellPath->setWellPathColor(
-            RiaColorTables::editableWellPathsPaletteColors().cycledColor3f( wellPathCollection->allWellPaths().size() ) );
-        wellPath->setUnitSystem( caseData->unitsType() );
-        wellPathCollection->addWellPath( wellPath, false );
-    }
     wellPath->setUnitSystem( caseData->unitsType() );
     wellPath->setTrajectoryPoints( points );
 
@@ -689,35 +665,16 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
     completionSettings->setAllowWellCrossFlow( well->allowCrossFlow );
 
     // One perforation per connection, over the path in the cell
-    const double defaultDiameter = caseData->unitsType() == RiaDefines::EclipseUnitSystem::UNITS_FIELD ? 0.709 : 0.216;
 
     std::vector<RimPerforationInterval*> perforations;
     double                               minFactor = std::numeric_limits<double>::max();
     double                               maxFactor = 0.0;
     int                                  shutCount = 0;
-    // The path in each connected cell: between its entry and exit points through the cell faces, or else from the last
-    // face crossing before the centre to the first one after it
+    // The path in each connected cell: between its entry and exit points
     std::vector<std::pair<double, double>> pathInCell;
-    for ( size_t c = 0; c < connectionCells.size() && throughCellFaces; ++c )
+    for ( const auto& [entry, exit] : cellPointIndices )
     {
-        pathInCell.emplace_back( mds[cellPointIndices[c].first], mds[cellPointIndices[c].second] );
-    }
-    for ( size_t c = 0; c < connectionCells.size() && !throughCellFaces; ++c )
-    {
-        const size_t centre  = centerPointIndices[c];
-        const auto   corners = mainGrid.cellCornerVertices( connectionCells[c].cellIndex );
-
-        double entryMd = mds[centre - 1];
-        if ( auto crossings = faceCrossings( points[centre - 1], points[centre], corners ); !crossings.empty() )
-        {
-            entryMd = mds[centre - 1] + *std::max_element( crossings.begin(), crossings.end() ) * ( mds[centre] - mds[centre - 1] );
-        }
-        double exitMd = mds[centre + 1];
-        if ( auto crossings = faceCrossings( points[centre], points[centre + 1], corners ); !crossings.empty() )
-        {
-            exitMd = mds[centre] + *std::min_element( crossings.begin(), crossings.end() ) * ( mds[centre + 1] - mds[centre] );
-        }
-        pathInCell.emplace_back( entryMd, exitMd );
+        pathInCell.emplace_back( mds[entry], mds[exit] );
     }
 
     // Cells that overlap, e.g. across faults over pinched out layers, share a part of the path. That part is left out
@@ -804,8 +761,8 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
                     otherCells.insert( intersection.globCellIndex );
                 }
             }
-            // Through cell faces, parts of the path outside the cell are left unperforated
-            if ( throughCellFaces && !otherCells.empty() && !piecesInCell.empty() )
+            // Parts of the path outside the cell, through its curved faces, are left unperforated
+            if ( !otherCells.empty() && !piecesInCell.empty() )
             {
                 otherCells.clear();
                 unscaled = 0.0;

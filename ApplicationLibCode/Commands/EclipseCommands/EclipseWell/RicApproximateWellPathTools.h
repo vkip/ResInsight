@@ -29,11 +29,12 @@ class RimWellPath;
 //==================================================================================================
 ///
 /// An approximate well path for a simulation well, made from its connections in the simulation results
-/// (WELSPECS/COMPDAT level data, segments are ignored). The path runs from above the well head through
-/// the centres of the connected cells, in connection order. Each connected cell gets a perforation over the
-/// path in the cell, with the diameter and skin of the connection, and a perforated length factor that makes
-/// the connection factor of a completion export on the simulation grid equal to the simulated one. On other
-/// grids, e.g. with LGRs, the same factor scales the perforated lengths.
+/// (WELSPECS/COMPDAT level data, segments are ignored). The path runs from above the well head through the connected
+/// cells in connection order: straight inside each cell, and from one connected cell to the next through their common
+/// face. The crossing points on the faces make the path short and smooth. Each connected cell gets a perforation over
+/// the path in the cell, with the diameter and skin of the connection, and a perforated length factor that makes the
+/// connection factor of a completion export on the simulation grid equal to the simulated one. On other grids, e.g.
+/// with LGRs, the same factor scales the perforated lengths.
 ///
 //==================================================================================================
 namespace RicApproximateWellPathTools
@@ -41,10 +42,8 @@ namespace RicApproximateWellPathTools
 QString wellPathName( const QString& simulationWellName );
 
 // Time step of the connections, or the last time step with connections if negative. A previous approximate
-// well path of the well is replaced. With throughCellFaces (experimental), the path is instead the shortest one
-// that passes the connected cells in order through their shared faces, straight inside each cell.
-std::expected<RimWellPath*, QString>
-    createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep, bool throughCellFaces = false );
+// well path of the well is replaced.
+std::expected<RimWellPath*, QString> createApproximateWellPath( RimEclipseCase* eclipseCase, const QString& simulationWellName, int timeStep );
 
 // The time step of the well's view if the well has connections then, else -1
 int viewTimeStepWithConnections( const RimSimWellInView& simWell );
