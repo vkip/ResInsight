@@ -332,15 +332,17 @@ void RifOpmFlowDeckFile::splitDatesIfNecessary()
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
-bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename )
+bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename, bool copyAllIncludes )
 {
     if ( m_fileDeck.get() != nullptr )
     {
         // FileDeck writes each included file at its path relative to the input deck folder, below
         // the output folder. A file outside the input folder (e.g. '../include/x' or reached
         // through a symbolic link) would then be written outside the output folder, possibly
-        // overwriting the input file itself, so such decks are written as a single file.
-        if ( auto outsideFile = fileOutsideDeckFolder(); outsideFile.has_value() )
+        // overwriting the input file itself, so such decks are written as a single file. Files
+        // that are included from where they are are not written, and can be anywhere.
+        const auto writtenFiles = copyAllIncludes ? std::vector<std::string>{} : m_fileDeck->files_written_copy_modified();
+        if ( auto outsideFile = fileOutsideDeckFolder( writtenFiles ); outsideFile.has_value() )
         {
             RiaLogging::warning( std::format( "The deck includes '{}', which is outside the deck folder. "
                                               "The deck is saved as a single file to keep the input files unchanged.",
@@ -350,7 +352,7 @@ bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename )
 
         try
         {
-            m_fileDeck->dump( folder, filename, Opm::FileDeck::OutputMode::COPY );
+            m_fileDeck->dump( folder, filename, copyAllIncludes ? Opm::FileDeck::OutputMode::COPY : Opm::FileDeck::OutputMode::COPY_MODIFIED );
             return true;
         }
         catch ( const std::exception& e )
@@ -363,9 +365,9 @@ bool RifOpmFlowDeckFile::saveDeck( std::string folder, std::string filename )
 
 //--------------------------------------------------------------------------------------------------
 /// The first file of the deck that is not inside the folder of the DATA file, after resolving
-/// symbolic links
+/// symbolic links. With onlyFiles, only those files are considered.
 //--------------------------------------------------------------------------------------------------
-std::optional<std::string> RifOpmFlowDeckFile::fileOutsideDeckFolder() const
+std::optional<std::string> RifOpmFlowDeckFile::fileOutsideDeckFolder( const std::vector<std::string>& onlyFiles ) const
 {
     if ( !m_deck ) return std::nullopt;
 
@@ -380,6 +382,7 @@ std::optional<std::string> RifOpmFlowDeckFile::fileOutsideDeckFolder() const
     {
         const auto& fileName = ( *m_deck )[i].location().filename;
         if ( fileName.empty() || !checkedFiles.insert( fileName ).second ) continue;
+        if ( !onlyFiles.empty() && std::find( onlyFiles.begin(), onlyFiles.end(), fileName ) == onlyFiles.end() ) continue;
 
         const auto relativePath = fs::weakly_canonical( fs::absolute( fileName ), ec ).lexically_relative( inputFolder );
         if ( relativePath.empty() || relativePath.is_absolute() || *relativePath.begin() == ".." ) return fileName;

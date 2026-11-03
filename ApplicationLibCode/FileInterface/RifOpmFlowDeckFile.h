@@ -48,8 +48,10 @@ public:
     ~RifOpmFlowDeckFile();
 
     std::expected<void, std::string> loadDeck( std::string filename );
-    bool                             saveDeck( std::string folder, std::string filename );
-    bool                             saveDeckInline( std::string folder, std::string filename );
+    // With copyAllIncludes false, only the include files that were changed (and those that include others) are
+    // written; the others are included from where they are, by their path relative to the output folder
+    bool saveDeck( std::string folder, std::string filename, bool copyAllIncludes = true );
+    bool saveDeckInline( std::string folder, std::string filename );
 
     int  addKeywordAtPosition( int deckPosition, const Opm::DeckKeyword& keyword );
     bool addKeywordAtTimeStep( int timeStep, const Opm::DeckKeyword& keyword, std::string insertAfterKeyword = "" );
@@ -115,7 +117,7 @@ public:
 
 private:
     void                       splitDatesIfNecessary();
-    std::optional<std::string> fileOutsideDeckFolder() const;
+    std::optional<std::string> fileOutsideDeckFolder( const std::vector<std::string>& onlyFiles = {} ) const;
 
 private:
     std::unique_ptr<Opm::Deck>     m_deck;

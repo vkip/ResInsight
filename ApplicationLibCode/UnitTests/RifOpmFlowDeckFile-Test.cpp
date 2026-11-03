@@ -509,6 +509,48 @@ TEST( RifOpmFlowDeckFileTest, SaveDeckKeepsIncludesOutsideDeckFolder )
 }
 
 //--------------------------------------------------------------------------------------------------
+/// Saving without copying all includes writes only the changed include files; the others are included
+/// from where they are, by their path relative to the output folder.
+//--------------------------------------------------------------------------------------------------
+TEST( RifOpmFlowDeckFileTest, SaveDeckCopiesOnlyChangedIncludes )
+{
+    QTemporaryDir tempDir;
+    ASSERT_TRUE( tempDir.isValid() );
+    QDir root( tempDir.path() );
+    ASSERT_TRUE( root.mkpath( "input/include" ) && root.mkpath( "output" ) );
+
+    auto writeFile = []( const QString& path, const QString& text )
+    {
+        QFile file( path );
+        ASSERT_TRUE( file.open( QIODevice::WriteOnly | QIODevice::Text ) );
+        file.write( text.toUtf8() );
+    };
+    writeFile( root.filePath( "input/include/poro.inc" ), "PORO\n 8*0.25 /\n" );
+    writeFile( root.filePath( "input/include/perm.inc" ), "PERMX\n 8*100 /\nPERMY\n 8*100 /\nPERMZ\n 8*10 /\n" );
+    writeFile( root.filePath( "input/CASE.DATA" ),
+               "RUNSPEC\nDIMENS\n 2 2 2 /\nOIL\nGRID\nDX\n 8*10 /\nDY\n 8*10 /\nDZ\n 8*1 /\nTOPS\n 4*1000 /\n"
+               "INCLUDE\n 'include/poro.inc' /\nINCLUDE\n 'include/perm.inc' /\nPROPS\n" );
+
+    RifOpmFlowDeckFile deckFile;
+    ASSERT_TRUE( deckFile.loadDeck( root.filePath( "input/CASE.DATA" ).toStdString() ).has_value() );
+    ASSERT_TRUE( deckFile.replaceKeyword( "PERMX", std::vector<double>( 8, 500.0 ), true ) );
+    ASSERT_TRUE( deckFile.saveDeck( root.filePath( "output" ).toStdString(), "CASE.DATA", /*copyAllIncludes*/ false ) );
+
+    EXPECT_TRUE( QFile::exists( root.filePath( "output/include/perm.inc" ) ) );
+    EXPECT_FALSE( QFile::exists( root.filePath( "output/include/poro.inc" ) ) );
+
+    QFile deck( root.filePath( "output/CASE.DATA" ) );
+    ASSERT_TRUE( deck.open( QIODevice::ReadOnly | QIODevice::Text ) );
+    EXPECT_TRUE( QString::fromUtf8( deck.readAll() ).contains( "../input/include/poro.inc" ) );
+
+    RifOpmFlowDeckFile savedDeck;
+    ASSERT_TRUE( savedDeck.loadDeck( root.filePath( "output/CASE.DATA" ).toStdString() ).has_value() );
+    EXPECT_DOUBLE_EQ( 0.25, savedDeck.deck()->get<Opm::ParserKeywords::PORO>().back().getRecord( 0 ).getItem( 0 ).get<double>( 0 ) );
+    EXPECT_DOUBLE_EQ( 500.0, savedDeck.deck()->get<Opm::ParserKeywords::PERMX>().back().getRecord( 0 ).getItem( 0 ).get<double>( 0 ) );
+    EXPECT_DOUBLE_EQ( 10.0, savedDeck.deck()->get<Opm::ParserKeywords::PERMZ>().back().getRecord( 0 ).getItem( 0 ).get<double>( 0 ) );
+}
+
+//--------------------------------------------------------------------------------------------------
 /// Saving to a folder that cannot be created must fail gracefully instead of crashing.
 /// Opm::FileDeck::dump() throws std::filesystem::filesystem_error when the output folder cannot
 /// be created. Here a regular file is used as a parent path component to trigger the exception.

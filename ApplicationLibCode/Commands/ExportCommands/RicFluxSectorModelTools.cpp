@@ -248,7 +248,7 @@ std::expected<QString, QString> makeFluxParent( const QString& gridFileName, con
         return std::unexpected( QString( "Failed to read the deck '%1': %2" ).arg( deckFile ).arg( QString::fromStdString( loaded.error() ) ) );
     }
     const QString parentDeckName = gridInfo.completeBaseName() + ".DATA";
-    if ( !parentDeck.saveDeck( parentFolder.toStdString(), parentDeckName.toStdString() ) )
+    if ( !parentDeck.saveDeck( parentFolder.toStdString(), parentDeckName.toStdString(), /*copyAllIncludes*/ false ) )
     {
         return std::unexpected( QString( "Failed to copy the deck to '%1'." ).arg( parentFolder ) );
     }
@@ -1319,7 +1319,7 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
                                                                         QFileInfo( gridIncludeFile ).fileName().toStdString() ) } } );
     if ( !deck.addKeyword( "GRID", includeKeyword ) ) return std::unexpected( "The deck has no GRID section." );
 
-    if ( !deck.saveDeck( exportFolder.toStdString(), QFileInfo( result.deckFile ).fileName().toStdString() ) )
+    if ( !deck.saveDeck( exportFolder.toStdString(), QFileInfo( result.deckFile ).fileName().toStdString(), /*copyAllIncludes*/ false ) )
     {
         return std::unexpected( QString( "Failed to write the sector deck '%1'." ).arg( result.deckFile ) );
     }
