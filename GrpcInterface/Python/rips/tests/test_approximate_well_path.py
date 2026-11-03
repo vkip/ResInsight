@@ -146,6 +146,33 @@ def test_create_approximate_well_path_multi_segment(rips_instance, initialize_te
     assert len(_reconstructed_valves(well_path)) == 0
 
 
+def test_export_valves_sharing_a_cell(rips_instance, initialize_test):
+    # A valve that reaches into the cell of the next perforation, which has its own valve: the cell gets one ICD
+    # segment with both shares of the area, as a cell connects to one segment only
+    case = rips_instance.project.load_case(path=MSW_CASE_PATH)
+    case.create_view()
+    well_path = case.create_approximate_well_path(well_name="P1")
+    first = min(
+        well_path.descendants(Perforation), key=lambda p: p.start_measured_depth
+    )
+    template = rips_instance.project.valve_templates().add_template(
+        completion_type="ICD", orifice_diameter=8.0, flow_coefficient=0.7
+    )
+    first.add_valve(start_md=2150.0, end_md=2250.0, valve_count=1, template=template)
+
+    with tempfile.TemporaryDirectory(prefix="rips_shared_cell") as folder:
+        case.export_completions(
+            well_paths=[well_path], export_folder=folder, include_msw=True
+        )
+        cells = [tuple(row[:3]) for row in _keyword_rows(folder, "COMPSEGS")[1:]]
+        assert len(cells) == len(set(cells))
+        area = 3.14159265 * 0.004**2
+        valves = _keyword_rows(folder, "WSEGVALV")
+        assert sum(float(row[3]) for row in valves) == pytest.approx(
+            5.0e-4 + area, rel=1e-3
+        )
+
+
 def test_create_approximate_well_path_lateral_and_devices(
     rips_instance, initialize_test
 ):
