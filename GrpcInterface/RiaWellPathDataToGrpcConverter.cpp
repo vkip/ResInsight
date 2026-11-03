@@ -261,7 +261,7 @@ void RiaWellPathDataToGrpcConverter::copyWsegaicdToGrpc( const RigMswTableData& 
         grpcAicdData->set_segment_1( wsegaicdRow.segment1 );
         grpcAicdData->set_segment_2( wsegaicdRow.segment2 );
         grpcAicdData->set_strength( wsegaicdRow.strength );
-        grpcAicdData->set_max_abs_rate( wsegaicdRow.maxAbsRate );
+        if ( wsegaicdRow.maxAbsRate.has_value() ) grpcAicdData->set_max_abs_rate( wsegaicdRow.maxAbsRate.value() );
         grpcAicdData->set_flow_rate_exponent( wsegaicdRow.flowRateExponent );
         grpcAicdData->set_visc_exponent( wsegaicdRow.viscExponent );
 

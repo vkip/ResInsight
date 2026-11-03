@@ -36,12 +36,15 @@ class RimWellPath;
 /// simulation grid equal to the simulated one. On other grids, e.g. with LGRs, the same factor scales the perforated
 /// lengths.
 ///
-/// For multi-segment wells, the segment data of the restart file (WELSEGS, COMPSEGS, WSEGVALV) is used too: the
-/// measured depths of the path are the lengths along the tubing (from the connection intervals along the tubing where they
-/// follow each other, else fitted to the depths of the tubing), and the well path gets the multi-segment settings (top
-/// segment as reference measured depth, tubing diameter and roughness, pressure drop) and a valve with the flow
-/// coefficient and area of the valve segment of each connection. Lateral branches and AICD/SICD devices are not
-/// reconstructed.
+/// For multi-segment wells, the segment data of the restart file (WELSEGS, COMPSEGS, WSEGVALV, WSEGAICD, WSEGSICD) is
+/// used too: the measured depths of the path are the lengths along the tubing (from the connection intervals along the
+/// tubing where they follow each other, else fitted to the depths of the tubing), and the well path gets the multi-segment
+/// settings (top segment as reference measured depth, tubing diameter and roughness, pressure drop). Each perforation of a
+/// connection on a valve or device segment gets a valve: an ICD with the flow coefficient and its share of the area of a
+/// valve segment, or an AICD/SICD with the parameters of a device segment, and a strength that includes the flow scaling
+/// factor of the device and the share of its flow. Each lateral branch with connections becomes a well path lateral
+/// ("SIM_<well> L<branch>"), tied in to the path of its parent branch at the length of its outlet along the tubing.
+/// Device settings that change with time are not reconstructed, only those at the time step.
 ///
 //==================================================================================================
 namespace RicApproximateWellPathTools

@@ -22,6 +22,7 @@
 #include <QString>
 #include <QStringList>
 
+#include <array>
 #include <expected>
 #include <optional>
 #include <vector>
@@ -84,6 +85,23 @@ struct Segment
     double valveMaxArea         = 0.0;
     double valveLength          = 0.0;
     double deviceStrength       = 0.0; // AICD/SICD base strength
+
+    // AICD/SICD, in the units of the restart file
+    double deviceScalingFactor   = 1.0; // The flow scaling factor the simulator uses (dimensionless)
+    int    deviceScalingMethod   = -1; // Item 11 of WSEGAICD/WSEGSICD
+    double deviceLength          = 0.0; // Item 5 of WSEGAICD/WSEGSICD
+    bool   deviceOpen            = true;
+    double calibrationDensity    = 0.0;
+    double calibrationViscosity  = 0.0;
+    double criticalWaterFraction = 0.0;
+    double transitionWidth       = 0.0;
+    double maxEmulsionRatio      = 0.0;
+    double maxValidFlowRate      = -1.0; // Negative when not given
+    double flowRateExponent      = 0.0; // AICD
+    double viscosityExponent     = 0.0; // AICD
+    // AICD exponents of the oil, water and gas fractions in the mixture density and viscosity
+    std::array<double, 3> densityFractionExponents   = { 1.0, 1.0, 1.0 };
+    std::array<double, 3> viscosityFractionExponents = { 1.0, 1.0, 1.0 };
 };
 
 struct Well

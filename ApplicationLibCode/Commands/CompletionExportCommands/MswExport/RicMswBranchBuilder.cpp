@@ -753,97 +753,155 @@ std::vector<RigMswBranch> buildValveBranches( const RimWellPath*                
                 continue;
             }
 
-            // AICD: one branch per overlapping cell with proportional flow scaling factor, matching tree approach
-            if ( valveType == RiaDefines::WellPathComponentType::AICD )
+            // AICD/SICD: one branch per overlapping cell, as a cell connects to one segment only. Each valve location is shared
+            // between the cells it overlaps in proportion to the overlap, and the flow scaling factor of a cell is the inverse
+            // of its share of the devices.
+            if ( isAicdOrSicd )
             {
-                const RimWellPathAicdParameters* aicdParams = valve->aicdParameters();
-                if ( aicdParams && aicdParams->isValid() )
+                const bool                       isAicd     = valveType == RiaDefines::WellPathComponentType::AICD;
+                const RimWellPathAicdParameters* aicdParams = isAicd ? valve->aicdParameters() : nullptr;
+                const RimWellPathSicdParameters* sicdParams = isAicd ? nullptr : valve->sicdParameters();
+                if ( isAicd ? !( aicdParams && aicdParams->isValid() ) : !( sicdParams && sicdParams->isValid() ) ) continue;
+
+                struct CellEntry
                 {
-                    const auto aicdValues = aicdParams->doubleValues();
+                    RigMswCellIntersection ci;
+                    double                 share;
+                    size_t                 firstLocation;
+                };
+                std::vector<CellEntry>                                            cells;
+                std::map<std::tuple<std::string, size_t, size_t, size_t>, size_t> cellIndex;
 
-                    auto setOptional = []( double value ) -> std::optional<double>
-                    { return std::isinf( value ) ? std::nullopt : std::optional<double>{ value }; };
+                for ( size_t vi = 0; vi < valveLocations.size(); ++vi )
+                {
+                    const double valveSegStart = valveSegs[vi].first;
+                    const double valveSegEnd   = valveSegs[vi].second;
 
-                    for ( size_t vi = 0; vi < valveLocations.size(); ++vi )
+                    std::vector<std::pair<RigMswCellIntersection, double>> overlaps;
+                    double                                                 totalOverlapMD = 0.0;
+                    for ( const auto& cellInfo : filteredIntersections )
                     {
-                        const double valveSegStart = valveSegs[vi].first;
-                        const double valveSegEnd   = valveSegs[vi].second;
-
-                        struct CellEntry
+                        const double overlapStart = std::max( valveSegStart, cellInfo.startMD );
+                        const double overlapEnd   = std::min( valveSegEnd, cellInfo.endMD );
+                        if ( overlapEnd <= overlapStart ) continue;
+                        if ( !filterEval.includesGlobalCell( cellInfo.globCellIndex ) ) continue;
+                        if ( auto ci = toMswCellIntersection( cellInfo, mainGrid, overlapStart, overlapEnd ) )
                         {
-                            RigMswCellIntersection ci;
-                            double                 overlapMD;
-                        };
-                        std::vector<CellEntry> cells;
-                        double                 totalOverlapMD = 0.0;
-                        for ( const auto& cellInfo : filteredIntersections )
-                        {
-                            const double overlapStart = std::max( valveSegStart, cellInfo.startMD );
-                            const double overlapEnd   = std::min( valveSegEnd, cellInfo.endMD );
-                            if ( overlapEnd <= overlapStart ) continue;
-                            if ( !filterEval.includesGlobalCell( cellInfo.globCellIndex ) ) continue;
-                            if ( auto ci = toMswCellIntersection( cellInfo, mainGrid, overlapStart, overlapEnd ) )
-                            {
-                                cells.push_back( { *ci, overlapEnd - overlapStart } );
-                                totalOverlapMD += overlapEnd - overlapStart;
-                            }
-                        }
-
-                        for ( auto& entry : cells )
-                        {
-                            const int    cellBranch = ++branchNumber;
-                            const int    outletSeg  = findContainingSegmentForMD( cellSegMap, entry.ci.distanceStart );
-                            const double valveMD    = segmentNodeMD( cellSegMap, outletSeg );
-                            const double valveEndMD = valveMD + RicMswTableDataTools::valveSegmentLength;
-                            const double startTVD   = RicMswTableDataTools::tvdFromMeasuredDepth( wellPath, valveMD );
-                            const double endTVD     = RicMswTableDataTools::tvdFromMeasuredDepth( wellPath, valveEndMD );
-
-                            double length = 0.0, depth = 0.0;
-                            if ( infoType == "INC" )
-                            {
-                                length = valveEndMD - valveMD;
-                                depth  = endTVD - startTVD;
-                            }
-                            else
-                            {
-                                length = valveEndMD;
-                                depth  = endTVD;
-                            }
-
-                            RigMswSegment seg;
-                            seg.segmentNumber       = segmentNumber;
-                            seg.outletSegmentNumber = outletSeg;
-                            seg.length              = length;
-                            seg.depth               = depth;
-                            seg.diameter            = linerDiameter;
-                            seg.roughness           = roughnessFactor;
-                            seg.sourceWellName      = wellPath->name().toStdString();
-                            seg.description         = QString( "%1 #%2" ).arg( valve->name() ).arg( vi + 1 ).toStdString();
-                            seg.intersections       = { entry.ci };
-
-                            WsegaicdRow wa;
-                            wa.well                = wellNameForExport;
-                            wa.segment1            = segmentNumber;
-                            wa.segment2            = segmentNumber;
-                            wa.strength            = aicdValues[AICD_STRENGTH];
-                            wa.length              = totalOverlapMD > 0.0 ? totalOverlapMD / entry.overlapMD : 0.0;
-                            wa.densityCali         = setOptional( aicdValues[AICD_DENSITY_CALIB_FLUID] );
-                            wa.viscosityCali       = setOptional( aicdValues[AICD_VISCOSITY_CALIB_FLUID] );
-                            wa.criticalValue       = setOptional( aicdValues[AICD_CRITICAL_WATER_IN_LIQUID_FRAC] );
-                            wa.widthTrans          = setOptional( aicdValues[AICD_EMULSION_VISC_TRANS_REGION] );
-                            wa.maxViscRatio        = setOptional( aicdValues[AICD_MAX_RATIO_EMULSION_VISC] );
-                            wa.methodScalingFactor = 1;
-                            wa.maxAbsRate          = aicdValues[AICD_MAX_FLOW_RATE];
-                            wa.flowRateExponent    = aicdValues[AICD_VOL_FLOW_EXP];
-                            wa.viscExponent        = aicdValues[AICD_VISOSITY_FUNC_EXP];
-                            wa.status              = aicdParams->isOpen() ? "OPEN" : "SHUT";
-                            wa.description         = valve->name().toStdString();
-                            seg.wsegaicdData       = wa;
-
-                            segmentNumber++;
-                            result.push_back( RigMswBranch{ cellBranch, std::nullopt, { std::move( seg ) } } );
+                            overlaps.emplace_back( *ci, overlapEnd - overlapStart );
+                            totalOverlapMD += overlapEnd - overlapStart;
                         }
                     }
+                    if ( !( totalOverlapMD > 0.0 ) ) continue;
+
+                    for ( const auto& [ci, overlapMD] : overlaps )
+                    {
+                        const double share = overlapMD / totalOverlapMD;
+                        const auto   key   = std::make_tuple( ci.gridName, ci.i, ci.j, ci.k );
+                        if ( auto it = cellIndex.find( key ); it != cellIndex.end() )
+                        {
+                            auto& entry = cells[it->second];
+                            entry.share += share;
+                            entry.ci.distanceStart = std::min( entry.ci.distanceStart, ci.distanceStart );
+                            entry.ci.distanceEnd   = std::max( entry.ci.distanceEnd, ci.distanceEnd );
+                        }
+                        else
+                        {
+                            cellIndex[key] = cells.size();
+                            cells.push_back( { ci, share, vi } );
+                        }
+                    }
+                }
+
+                auto setOptional = []( double value ) -> std::optional<double>
+                { return std::isinf( value ) ? std::nullopt : std::optional<double>{ value }; };
+
+                for ( auto& entry : cells )
+                {
+                    const int    cellBranch = ++branchNumber;
+                    const int    outletSeg  = findContainingSegmentForMD( cellSegMap, entry.ci.distanceStart );
+                    const double valveMD    = segmentNodeMD( cellSegMap, outletSeg );
+                    const double valveEndMD = valveMD + RicMswTableDataTools::valveSegmentLength;
+                    const double startTVD   = RicMswTableDataTools::tvdFromMeasuredDepth( wellPath, valveMD );
+                    const double endTVD     = RicMswTableDataTools::tvdFromMeasuredDepth( wellPath, valveEndMD );
+
+                    double length = 0.0, depth = 0.0;
+                    if ( infoType == "INC" )
+                    {
+                        length = valveEndMD - valveMD;
+                        depth  = endTVD - startTVD;
+                    }
+                    else
+                    {
+                        length = valveEndMD;
+                        depth  = endTVD;
+                    }
+
+                    RigMswSegment seg;
+                    seg.segmentNumber       = segmentNumber;
+                    seg.outletSegmentNumber = outletSeg;
+                    seg.length              = length;
+                    seg.depth               = depth;
+                    seg.diameter            = linerDiameter;
+                    seg.roughness           = roughnessFactor;
+                    seg.sourceWellName      = wellPath->name().toStdString();
+                    seg.description         = QString( "%1 #%2" ).arg( valve->name() ).arg( entry.firstLocation + 1 ).toStdString();
+                    seg.intersections       = { entry.ci };
+
+                    // Method 1: the flow scaling factor is the absolute value of the length (item 5)
+                    const double scalingFactor = 1.0 / entry.share;
+                    if ( isAicd )
+                    {
+                        const auto aicdValues = aicdParams->doubleValues();
+
+                        WsegaicdRow wa;
+                        wa.well                = wellNameForExport;
+                        wa.segment1            = segmentNumber;
+                        wa.segment2            = segmentNumber;
+                        wa.strength            = aicdValues[AICD_STRENGTH];
+                        wa.length              = scalingFactor;
+                        wa.densityCali         = setOptional( aicdValues[AICD_DENSITY_CALIB_FLUID] );
+                        wa.viscosityCali       = setOptional( aicdValues[AICD_VISCOSITY_CALIB_FLUID] );
+                        wa.criticalValue       = setOptional( aicdValues[AICD_CRITICAL_WATER_IN_LIQUID_FRAC] );
+                        wa.widthTrans          = setOptional( aicdValues[AICD_EMULSION_VISC_TRANS_REGION] );
+                        wa.maxViscRatio        = setOptional( aicdValues[AICD_MAX_RATIO_EMULSION_VISC] );
+                        wa.methodScalingFactor = 1;
+                        wa.maxAbsRate          = setOptional( aicdValues[AICD_MAX_FLOW_RATE] );
+                        wa.flowRateExponent    = aicdValues[AICD_VOL_FLOW_EXP];
+                        wa.viscExponent        = aicdValues[AICD_VISOSITY_FUNC_EXP];
+                        wa.status              = aicdParams->isOpen() ? "OPEN" : "SHUT";
+                        wa.oilFlowFraction     = setOptional( aicdValues[AICD_EXP_OIL_FRAC_DENSITY] );
+                        wa.waterFlowFraction   = setOptional( aicdValues[AICD_EXP_WATER_FRAC_DENSITY] );
+                        wa.gasFlowFraction     = setOptional( aicdValues[AICD_EXP_GAS_FRAC_DENSITY] );
+                        wa.oilViscFraction     = setOptional( aicdValues[AICD_EXP_OIL_FRAC_VISCOSITY] );
+                        wa.waterViscFraction   = setOptional( aicdValues[AICD_EXP_WATER_FRAC_VISCOSITY] );
+                        wa.gasViscFraction     = setOptional( aicdValues[AICD_EXP_GAS_FRAC_VISCOSITY] );
+                        wa.description         = valve->name().toStdString();
+                        seg.wsegaicdData       = wa;
+                    }
+                    else
+                    {
+                        const auto sicdValues = sicdParams->doubleValues();
+
+                        WsegsicdRow ws;
+                        ws.well                = wellNameForExport;
+                        ws.segment1            = segmentNumber;
+                        ws.segment2            = segmentNumber;
+                        ws.strength            = sicdValues[SICD_STRENGTH];
+                        ws.length              = scalingFactor;
+                        ws.densityCali         = setOptional( sicdValues[SICD_CALIBRATION_DENSITY] );
+                        ws.viscosityCali       = setOptional( sicdValues[SICD_CALIBRATION_VISCOSITY] );
+                        ws.criticalValue       = setOptional( sicdValues[SICD_EML_CRT] );
+                        ws.widthTrans          = setOptional( sicdValues[SICD_EML_TRANS] );
+                        ws.maxViscRatio        = setOptional( sicdValues[SICD_EML_MAX] );
+                        ws.methodScalingFactor = 1;
+                        ws.maxAbsRate          = setOptional( sicdValues[SICD_MAX_CALIB_RATE] );
+                        ws.status              = sicdParams->isOpen() ? "OPEN" : "SHUT";
+                        ws.description         = valve->name().toStdString();
+                        seg.wsegsicdData       = ws;
+                    }
+
+                    segmentNumber++;
+                    result.push_back( RigMswBranch{ cellBranch, std::nullopt, { std::move( seg ) } } );
                 }
                 continue;
             }

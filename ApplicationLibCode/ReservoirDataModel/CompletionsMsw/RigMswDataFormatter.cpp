@@ -154,7 +154,7 @@ void formatWsegaicdRows( RifTextDataTableFormatter& formatter, const std::vector
             formatter.add( formatter.defaultMarker() );
         }
 
-        formatter.add( row.maxAbsRate );
+        formatter.addOptionalValue( row.maxAbsRate );
         formatter.add( row.flowRateExponent );
         formatter.add( row.viscExponent );
 
@@ -205,7 +205,7 @@ void formatWsegsicdRows( RifTextDataTableFormatter& formatter, const std::vector
             formatter.add( formatter.defaultMarker() );
         }
 
-        formatter.add( row.maxAbsRate );
+        formatter.addOptionalValue( row.maxAbsRate );
 
         if ( row.status.has_value() )
         {

@@ -411,7 +411,7 @@ Opm::DeckKeyword wsegaicdKeyword( const RigMswTableData& mswData )
         items.push_back( RifOpmDeckTools::optionalItem( W::WIDTH_TRANS::itemName, waRow.widthTrans ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::MAX_VISC_RATIO::itemName, waRow.maxViscRatio ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::METHOD_SCALING_FACTOR::itemName, waRow.methodScalingFactor ) );
-        items.push_back( RifOpmDeckTools::item( W::MAX_ABS_RATE::itemName, waRow.maxAbsRate ) );
+        items.push_back( RifOpmDeckTools::optionalItem( W::MAX_ABS_RATE::itemName, waRow.maxAbsRate ) );
         items.push_back( RifOpmDeckTools::item( W::FLOW_RATE_EXPONENT::itemName, waRow.flowRateExponent ) );
         items.push_back( RifOpmDeckTools::item( W::VISC_EXPONENT::itemName, waRow.viscExponent ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::STATUS::itemName, waRow.status ) );
@@ -457,7 +457,7 @@ Opm::DeckKeyword wsegsicdKeyword( const RigMswTableData& mswData )
         items.push_back( RifOpmDeckTools::optionalItem( W::WIDTH_TRANS::itemName, waRow.widthTrans ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::MAX_VISC_RATIO::itemName, waRow.maxViscRatio ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::METHOD_SCALING_FACTOR::itemName, waRow.methodScalingFactor ) );
-        items.push_back( RifOpmDeckTools::item( W::MAX_ABS_RATE::itemName, waRow.maxAbsRate ) );
+        items.push_back( RifOpmDeckTools::optionalItem( W::MAX_ABS_RATE::itemName, waRow.maxAbsRate ) );
         items.push_back( RifOpmDeckTools::optionalItem( W::STATUS::itemName, waRow.status ) );
 
         newKw.addRecord( Opm::DeckRecord{ std::move( items ) } );

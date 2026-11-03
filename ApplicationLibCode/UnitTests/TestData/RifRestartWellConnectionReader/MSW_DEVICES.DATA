@@ -1,0 +1,115 @@
+-- A multi-segment well with a lateral branch, SICD and AICD devices, for the restart well connection reader tests
+RUNSPEC
+DIMENS
+ 5 4 2 /
+OIL
+WATER
+METRIC
+WELLDIMS
+ 1 10 1 1 /
+WSEGDIMS
+ 1 20 10 /
+UNIFOUT
+GRID
+INIT
+DX
+ 40*100 /
+DY
+ 40*100 /
+DZ
+ 40*5 /
+TOPS
+ 20*2000 /
+PORO
+ 40*0.25 /
+PERMX
+ 40*500 /
+PERMY
+ 40*500 /
+PERMZ
+ 40*50 /
+PROPS
+PVDO
+ 100 1.2 1.0
+ 300 1.15 1.1 /
+PVTW
+ 200 1.0 4.5E-5 0.5 0 /
+DENSITY
+ 850 1000 1 /
+ROCK
+ 200 4E-5 /
+SWOF
+ 0.2 0 1 0
+ 0.8 1 0 0 /
+SOLUTION
+EQUIL
+ 2000 200 2100 0 1500 0 /
+SUMMARY
+WOPR
+/
+WBHP
+/
+SPR
+ 'P1' /
+/
+SOFR
+ 'P1' /
+/
+COPR
+ 'P1' /
+/
+CPR
+ 'P1' /
+/
+SCHEDULE
+RPTRST
+ BASIC=2 /
+WELSPECS
+ 'P1' 'G' 1 1 2002.5 OIL /
+/
+COMPDAT
+ 'P1' 2 1 1 1 OPEN 1* 1* 0.2 1* 0 1* 'X' /
+ 'P1' 3 1 1 1 OPEN 1* 1* 0.2 1* 0 1* 'X' /
+ 'P1' 4 1 1 1 OPEN 1* 1* 0.2 1* 0 1* 'X' /
+ 'P1' 3 2 1 1 OPEN 1* 1* 0.2 1* 0 1* 'Y' /
+ 'P1' 3 3 1 1 OPEN 1* 1* 0.2 1* 0 1* 'Y' /
+ 'P1' 3 4 1 1 OPEN 1* 1* 0.2 1* 0 1* 'Y' /
+/
+WELSEGS
+ 'P1' 2002.5 2050.0 1* ABS 'HF-' /
+ 2 2 1 1 2150.0 2002.0 0.15 0.0001 /
+ 3 3 1 2 2250.0 2002.5 0.15 0.0001 /
+ 4 4 1 3 2350.0 2002.5 0.15 0.0001 /
+ 5 5 2 3 2350.0 2002.5 0.12 0.0002 /
+ 6 6 2 5 2450.0 2002.5 0.12 0.0002 /
+ 7 7 2 6 2550.0 2002.5 0.12 0.0002 /
+ 8 8 3 3 2250.1 2002.5 0.15 0.0001 /
+ 9 9 4 4 2350.1 2002.5 0.15 0.0001 /
+ 10 10 5 5 2350.1 2002.5 0.15 0.0001 /
+ 11 11 6 7 2550.1 2002.5 0.15 0.0001 /
+/
+COMPSEGS
+ 'P1' /
+ 2 1 1 1 2100.0 2200.0 /
+ 3 1 1 1 2200.0 2300.0 1* 1* 1* 1* 8 /
+ 4 1 1 1 2300.0 2400.0 1* 1* 1* 1* 9 /
+ 3 2 1 2 2300.0 2400.0 1* 1* 1* 1* 10 /
+ 3 3 1 2 2400.0 2500.0 /
+ 3 4 1 2 2500.0 2600.0 1* 1* 1* 1* 11 /
+/
+WSEGSICD
+-- well seg1 seg2 strength length caldens calvisc emlcrt emltrans emlmax method maxrate status
+ 'P1' 8 8 2.0E-5 1.5 1000 1.0 0.5 0.05 5 1 1* OPEN /
+ 'P1' 11 11 3.0E-5 50 1000 1.0 0.5 0.05 5 1* 1* OPEN /
+/
+WSEGAICD
+-- well seg1 seg2 strength length caldens calvisc emlcrt emltrans emlmax method maxrate x y status a1 a2 a3 b1 b2 b3
+ 'P1' 9 9 2.0E-8 2.0 1000 1.0 0.5 0.05 5 1 1* 2.5 0.7 OPEN 1 1 1 1 1 1 /
+ 'P1' 10 10 2.0E-6 12 1000 1.0 0.5 0.05 5 1* 500 2.5 0.7 OPEN 1.1 1 1 1 1 1 /
+/
+WCONPROD
+ 'P1' OPEN BHP 5* 150 /
+/
+TSTEP
+ 1 /
+END

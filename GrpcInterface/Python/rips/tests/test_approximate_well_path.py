@@ -15,6 +15,10 @@ MSW_CASE_PATH = (
     dataroot.PATH
     + "/../ApplicationLibCode/UnitTests/TestData/RifRestartWellConnectionReader/MSW_ICD.EGRID"
 )
+MSW_DEVICES_CASE_PATH = (
+    dataroot.PATH
+    + "/../ApplicationLibCode/UnitTests/TestData/RifRestartWellConnectionReader/MSW_DEVICES.EGRID"
+)
 
 # Connection factors of well P3 in the restart file at the last time step
 P3_CONNECTION_FACTORS = {
@@ -140,6 +144,54 @@ def test_create_approximate_well_path_multi_segment(rips_instance, initialize_te
         well_name="P1", use_multi_segment_data=False
     )
     assert len(_reconstructed_valves(well_path)) == 0
+
+
+def test_create_approximate_well_path_lateral_and_devices(
+    rips_instance, initialize_test
+):
+    # A multi-segment well with a lateral branch, two SICDs and two AICDs (WSEGSICD, WSEGAICD)
+    case = rips_instance.project.load_case(path=MSW_DEVICES_CASE_PATH)
+    case.create_view()
+
+    well_path = case.create_approximate_well_path(well_name="P1")
+    lateral = rips_instance.project.well_path_by_name("SIM_P1 L2")
+    assert lateral is not None
+    assert len(well_path.descendants(Perforation)) == 3
+    lateral_perforations = sorted(
+        lateral.descendants(Perforation), key=lambda p: p.start_measured_depth
+    )
+    assert len(lateral_perforations) == 3
+    # The measured depths of the lateral are those along its tubing (COMPSEGS)
+    for perforation, (start, end) in zip(
+        lateral_perforations, ((2300, 2400), (2400, 2500), (2500, 2600))
+    ):
+        assert perforation.start_measured_depth == pytest.approx(start, abs=0.5)
+        assert perforation.end_measured_depth == pytest.approx(end, abs=0.5)
+
+    with tempfile.TemporaryDirectory(prefix="rips_approx_devices") as folder:
+        case.export_completions(
+            well_paths=[well_path], export_folder=folder, include_msw=True
+        )
+        # The lateral is a branch of the well, with its own tubing diameter
+        segments = [row for row in _keyword_rows(folder, "WELSEGS") if row[0] != "P1"]
+        assert {row[2] for row in segments} >= {"1", "2"}
+        assert {round(float(row[6]), 3) for row in segments if row[2] == "2"} == {0.12}
+
+        # The strengths of the devices include their flow scaling factors
+        sicds = _keyword_rows(folder, "WSEGSICD")
+        assert sorted(float(row[3]) for row in sicds) == pytest.approx(
+            [3.0e-5 * 0.5**2, 2.0e-5 * 1.5**2], rel=1e-4
+        )
+        aicds = _keyword_rows(folder, "WSEGAICD")
+        assert sorted(float(row[3]) for row in aicds) == pytest.approx(
+            [2.0e-6 * 0.12**2.5, 2.0e-8 * 2.0**2.5], rel=1e-4
+        )
+        assert all(float(row[12]) == pytest.approx(2.5) for row in aicds)
+
+    # Recreating replaces the lateral
+    case.create_approximate_well_path(well_name="P1")
+    names = [w.name for w in rips_instance.project.well_paths()]
+    assert names.count("SIM_P1 L2") == 1
 
 
 def test_create_approximate_well_path_errors(rips_instance, initialize_test):

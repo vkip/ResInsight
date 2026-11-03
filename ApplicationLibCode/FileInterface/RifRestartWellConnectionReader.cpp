@@ -211,9 +211,39 @@ std::vector<RifRestartWellConnectionReader::Well> wellsOfReportStep( Opm::EclIO:
                     segment.valveMaxArea         = rs[VI::RSeg::ValveMaxArea];
                     segment.valveLength          = rs[VI::RSeg::ValveLength];
                 }
-                else if ( segment.type == Segment::Type::SPIRAL_ICD || segment.type == Segment::Type::AUTO_ICD )
+                else if ( ( segment.type == Segment::Type::SPIRAL_ICD || segment.type == Segment::Type::AUTO_ICD ) &&
+                          nisegz > VI::ISeg::ICDOpenShutFlag && nrsegz > VI::RSeg::flowFractionGasViscosityExponent )
                 {
-                    segment.deviceStrength = rs[VI::RSeg::DeviceBaseStrength];
+                    segment.deviceStrength        = rs[VI::RSeg::DeviceBaseStrength];
+                    segment.deviceScalingMethod   = is[VI::ISeg::ICDScalingMode];
+                    segment.deviceOpen            = is[VI::ISeg::ICDOpenShutFlag] == 0;
+                    segment.deviceLength          = rs[VI::RSeg::ICDLength];
+                    segment.calibrationDensity    = rs[VI::RSeg::CalibrFluidDensity];
+                    segment.calibrationViscosity  = rs[VI::RSeg::CalibrFluidViscosity];
+                    segment.criticalWaterFraction = rs[VI::RSeg::CriticalWaterFraction];
+                    segment.transitionWidth       = rs[VI::RSeg::TransitionRegWidth];
+                    segment.maxEmulsionRatio      = rs[VI::RSeg::MaxEmulsionRatio];
+                    segment.maxValidFlowRate      = rs[VI::RSeg::MaxValidFlowRate];
+
+                    // The scaling factor is written as a length when it is one (method 1, or a negative length with a
+                    // negative method). The simulator uses the length in SI units as the factor.
+                    segment.deviceScalingFactor = rs[VI::RSeg::ScalingFactor];
+                    const bool scalingIsLength  = segment.deviceScalingMethod == 1 ||
+                                                 ( segment.deviceScalingMethod < 0 && segment.deviceLength < 0.0 );
+                    if ( scalingIsLength && inteHead[VI::intehead::UNIT] == 2 ) segment.deviceScalingFactor *= 0.3048;
+                    if ( scalingIsLength && inteHead[VI::intehead::UNIT] == 3 ) segment.deviceScalingFactor *= 0.01;
+
+                    if ( segment.type == Segment::Type::AUTO_ICD )
+                    {
+                        segment.flowRateExponent           = rs[VI::RSeg::FlowRateExponent];
+                        segment.viscosityExponent          = rs[VI::RSeg::ViscFuncExponent];
+                        segment.densityFractionExponents   = { rs[VI::RSeg::flowFractionOilDensityExponent],
+                                                               rs[VI::RSeg::flowFractionWaterDensityExponent],
+                                                               rs[VI::RSeg::flowFractionGasDensityExponent] };
+                        segment.viscosityFractionExponents = { rs[VI::RSeg::flowFractionOilViscosityExponent],
+                                                               rs[VI::RSeg::flowFractionWaterViscosityExponent],
+                                                               rs[VI::RSeg::flowFractionGasViscosityExponent] };
+                    }
                 }
                 well.segments.push_back( segment );
             }

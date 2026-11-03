@@ -129,7 +129,7 @@ struct WsegaicdRow
     std::optional<double>       widthTrans;         //  9 EMLTRANS
     std::optional<double>       maxViscRatio;       // 10 EMLMAX
     std::optional<int>          methodScalingFactor;// 11 NSCALFAC
-    double                      maxAbsRate;         // 12 CALRATE
+    std::optional<double>       maxAbsRate;         // 12 CALRATE
     double                      flowRateExponent;   // 13 RATEXP
     double                      viscExponent;       // 14 VISCEXP
     std::optional<std::string>  status;             // 15 STATUS
@@ -161,7 +161,7 @@ struct WsegsicdRow
     std::optional<double>       widthTrans;         //  9 EMLTRANS
     std::optional<double>       maxViscRatio;       // 10 EMLMAX
     std::optional<int>          methodScalingFactor;// 11 NSCALFAC
-    double                      maxAbsRate;         // 12 CALRATE
+    std::optional<double>       maxAbsRate;         // 12 CALRATE
     std::optional<std::string>  status;             // 13 STATUS
 
     std::string                 description;

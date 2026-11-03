@@ -232,6 +232,14 @@ void RimSegmentCollection::setManualReferenceMD( double manualRefMD )
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+/// A lateral uses its own liner diameter and roughness, not those of the top level well
+//--------------------------------------------------------------------------------------------------
+void RimSegmentCollection::setCustomValuesForLateral( bool enable )
+{
+    m_customValuesForLateral = enable;
+}
+
+//--------------------------------------------------------------------------------------------------
 void RimSegmentCollection::setLinerDiameter( double diameter )
 {
     m_linerDiameter = diameter;

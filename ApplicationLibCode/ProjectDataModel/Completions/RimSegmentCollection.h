@@ -69,6 +69,7 @@ public:
     void setManualReferenceMD( double manualRefMD );
     void setLinerDiameter( double diameter );
     void setRoughnessFactor( double roughnessFactor );
+    void setCustomValuesForLateral( bool enable );
     void setCompsegsSegmentNumber( CompsegsSegmentNumberType segmentNumberType );
     void setSingleSegmentBeforeFirstPerforation( bool enable );
     void setSingleSegmentAfterLastPerforation( bool enable );
