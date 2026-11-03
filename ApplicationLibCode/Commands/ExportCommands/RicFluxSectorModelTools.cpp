@@ -708,6 +708,102 @@ std::expected<QString, QString> RicFluxSectorModelTools::relocateDeckFluxnum( Ri
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+std::vector<int>
+    RicFluxSectorModelTools::removeAquifersOutsideSector( RifOpmFlowDeckFile& deckFile, const std::vector<int>& fluxnum, size_t nx, size_t ny )
+{
+    const auto aqucons = deckFile.findAllKeywordsWithIndices( "AQUCON" );
+    const auto aqunums = deckFile.findAllKeywordsWithIndices( "AQUNUM" );
+    if ( aqunums.empty() ) return {};
+
+    const auto intItem  = []( const Opm::DeckRecord& record, size_t index ) { return record.getItem( index ).get<int>( 0 ); };
+    const auto inSector = [&]( int i, int j, int k )
+    {
+        const size_t cell = static_cast<size_t>( i - 1 ) + nx * ( static_cast<size_t>( j - 1 ) + ny * static_cast<size_t>( k - 1 ) );
+        return cell < fluxnum.size() && fluxnum[cell] == 1;
+    };
+
+    // Aquifers with a connection (AQUCON: id, I1, I2, J1, J2, K1, K2, ...) to a cell of the sector
+    std::set<int> connected;
+    for ( const auto& [index, keyword] : aqucons )
+    {
+        for ( const auto& record : keyword )
+        {
+            const int id = intItem( record, 0 );
+            for ( int k = intItem( record, 5 ); k <= intItem( record, 6 ) && !connected.contains( id ); ++k )
+                for ( int j = intItem( record, 3 ); j <= intItem( record, 4 ) && !connected.contains( id ); ++j )
+                    for ( int i = intItem( record, 1 ); i <= intItem( record, 2 ); ++i )
+                    {
+                        if ( inSector( i, j, k ) )
+                        {
+                            connected.insert( id );
+                            break;
+                        }
+                    }
+        }
+    }
+
+    std::set<int>                                                  removed;
+    std::vector<Opm::FileDeck::Index>                              emptied;
+    std::vector<std::pair<Opm::FileDeck::Index, Opm::DeckKeyword>> updates;
+    for ( const auto& keywords : { aqunums, aqucons } )
+    {
+        for ( const auto& [index, keyword] : keywords )
+        {
+            Opm::DeckKeyword updated( keyword.location(), keyword.name() );
+            for ( const auto& record : keyword )
+            {
+                const int id = intItem( record, 0 );
+                if ( connected.contains( id ) )
+                    updated.addRecord( Opm::DeckRecord( record ) );
+                else
+                    removed.insert( id );
+            }
+            if ( updated.size() == keyword.size() ) continue;
+            if ( updated.size() == 0 )
+                emptied.push_back( index );
+            else
+                updates.emplace_back( index, updated );
+        }
+    }
+
+    // Summary vectors of the removed aquifers (ANQR, ANQT, ANQP: a list of aquifer numbers, or all when empty)
+    if ( !removed.empty() )
+    {
+        for ( const std::string name : { "ANQR", "ANQT", "ANQP" } )
+        {
+            for ( const auto& [index, keyword] : deckFile.findAllKeywordsWithIndices( name ) )
+            {
+                if ( !keyword.isDataKeyword() || keyword.size() == 0 ) continue;
+                Opm::DeckKeyword updated( keyword );
+                auto&            ids   = updated.getIntData();
+                const size_t     count = ids.size();
+                if ( count == 0 ) continue;
+                std::erase_if( ids, [&]( int id ) { return removed.contains( id ); } );
+                if ( ids.size() == count ) continue;
+                if ( ids.empty() )
+                    emptied.push_back( index );
+                else
+                    updates.emplace_back( index, updated );
+            }
+        }
+    }
+
+    for ( const auto& [index, keyword] : updates )
+    {
+        deckFile.replaceKeywordAtIndex( index, keyword );
+    }
+    // Erase from the back, so the remaining indices stay valid
+    std::sort( emptied.begin(), emptied.end() );
+    for ( auto it = emptied.rbegin(); it != emptied.rend(); ++it )
+    {
+        deckFile.removeKeywordAtIndex( *it );
+    }
+    return { removed.begin(), removed.end() };
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 bool RicFluxSectorModelTools::isMultiSegmentWell( const RifOpmFlowDeckFile& deckFile, const QString& wellName )
 {
     const std::string well = wellName.toStdString();
@@ -1140,6 +1236,17 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
     auto relocated = relocateDeckFluxnum( deck );
     if ( !relocated ) return std::unexpected( relocated.error() );
     if ( !relocated->isEmpty() ) result.warnings.push_back( *relocated );
+
+    if ( const auto aquifers = removeAquifersOutsideSector( deck, fluxnum, mainGrid.cellCountI(), mainGrid.cellCountJ() ); !aquifers.empty() )
+    {
+        QStringList numbers;
+        for ( int id : aquifers )
+        {
+            numbers.push_back( QString::number( id ) );
+        }
+        result.warnings.push_back(
+            QString( "The numerical aquifers %1 connect to no cell of the sector and were removed from the deck." ).arg( numbers.join( ", " ) ) );
+    }
 
     QString gridText = header + QString( "\nINCLUDE\n  '%1' /\n\n"
                                          "USEFLUX\n  '%2' /\n\n"

@@ -90,6 +90,10 @@ std::expected<QString, QString> relocateDeckFluxnum( RifOpmFlowDeckFile& deckFil
 // Whether the deck defines the well as a multi-segment well (WELSEGS)
 bool isMultiSegmentWell( const RifOpmFlowDeckFile& deckFile, const QString& wellName );
 
+// Removes the numerical aquifers (AQUNUM, AQUCON, and their ANQR/ANQT/ANQP summary vectors) that connect to no cell of the sector (fluxnum
+// 1, one value per main grid cell). Their cells would stay active in the sector run, unconnected. Returns the numbers of the removed aquifers.
+std::vector<int> removeAquifersOutsideSector( RifOpmFlowDeckFile& deckFile, const std::vector<int>& fluxnum, size_t nx, size_t ny );
+
 // Converts the well's WELSPECS and COMPDAT to WELSPECL and COMPDATL in the LGR
 std::expected<int, QString>
     convertWellToLgr( RifOpmFlowDeckFile& deckFile, RimEclipseCase* eclipseCase, const QString& wellName, const LgrInfo& lgrInfo );

@@ -24,6 +24,7 @@
 #include "RicDeleteTemporaryLgrsFeature.h"
 #include "RicExportLgrFeature.h"
 
+#include "RigActiveCellInfo.h"
 #include "RigCell.h"
 #include "RigEclipseCaseData.h"
 #include "RigLocalGrid.h"
@@ -890,8 +891,34 @@ std::expected<std::vector<LgrInfo>, QString> RicWellLgrTools::buildWellRefinemen
     const CellSet pathCells = perforatedPathCells( eclipseCase, wellPath );
     if ( pathCells.empty() ) return std::unexpected( QString( "The well path '%1' has no perforated cells." ).arg( wellPath.name() ) );
 
-    const auto boxes = wellRingBoxes( pathCells, settings.rings, { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() } );
+    auto boxes = wellRingBoxes( pathCells, settings.rings, { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() } );
     if ( boxes.empty() ) return std::unexpected( "The settings refine no cells." );
+
+    // Boxes without active cells are left out, as a simulator cannot refine them (OPM Flow stops with an error)
+    if ( const RigActiveCellInfo* activeCells = caseData->activeCellInfo( RiaDefines::PorosityModelType::MATRIX_MODEL ) )
+    {
+        const auto hasActiveCell = [&]( const RefinedBox& box )
+        {
+            for ( size_t k = box.min.k(); k <= box.max.k(); ++k )
+                for ( size_t j = box.min.j(); j <= box.max.j(); ++j )
+                    for ( size_t i = box.min.i(); i <= box.max.i(); ++i )
+                    {
+                        if ( activeCells->isActive( ReservoirCellIndex( mainGrid.cellIndexFromIJK( i, j, k ) ) ) ) return true;
+                    }
+            return false;
+        };
+        const size_t boxCount = boxes.size();
+        std::erase_if( boxes, [&]( const RefinedBox& box ) { return !hasActiveCell( box ); } );
+        if ( boxes.size() < boxCount )
+        {
+            RiaLogging::info( QString( "The refinement around well '%1': %2 of %3 boxes have no active cells and are left out." )
+                                  .arg( wellName )
+                                  .arg( boxCount - boxes.size() )
+                                  .arg( boxCount )
+                                  .toStdString() );
+        }
+        if ( boxes.empty() ) return std::unexpected( "The settings refine no active cells." );
+    }
 
     const auto inBox = []( const caf::VecIjk0& c, const RefinedBox& box )
     {
