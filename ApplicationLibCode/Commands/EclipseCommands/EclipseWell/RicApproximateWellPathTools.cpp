@@ -915,52 +915,92 @@ std::expected<RimWellPath*, QString> RicApproximateWellPathTools::createApproxim
     // Measured depths along the path, or along the tubing where the connection intervals are known: the path then has the
     // tubing length at the top segment and where it enters and leaves the connected cells, and in between the lengths
     // along the path scaled to fit
-    std::vector<double> measuredDepths = RigWellPathGeometryTools::calculateMeasuredDepth( points, measuredDepthAtFirstPoint );
-    if ( intervalsUsed )
+    auto measuredDepthsOfPath = [&]()
     {
-        std::vector<std::pair<size_t, double>> anchors;
-        if ( topPointIndex ) anchors.emplace_back( *topPointIndex, bore.lengths.front() );
-        for ( size_t c = 0; c < connectionCells.size(); ++c )
+        std::vector<double> measuredDepths = RigWellPathGeometryTools::calculateMeasuredDepth( points, measuredDepthAtFirstPoint );
+        if ( intervalsUsed )
         {
-            if ( !tubingInterval[c] ) continue;
-            anchors.emplace_back( cellPointIndices[c].first, tubingInterval[c]->first );
-            anchors.emplace_back( cellPointIndices[c].second, tubingInterval[c]->second );
-        }
-        std::stable_sort( anchors.begin(), anchors.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
-        std::vector<std::pair<size_t, double>> increasing;
-        for ( const auto& anchor : anchors )
-        {
-            if ( increasing.empty() || ( anchor.first > increasing.back().first && anchor.second > increasing.back().second ) )
+            std::vector<std::pair<size_t, double>> anchors;
+            if ( topPointIndex ) anchors.emplace_back( *topPointIndex, bore.lengths.front() );
+            for ( size_t c = 0; c < connectionCells.size(); ++c )
             {
-                increasing.push_back( anchor );
+                if ( !tubingInterval[c] ) continue;
+                anchors.emplace_back( cellPointIndices[c].first, tubingInterval[c]->first );
+                anchors.emplace_back( cellPointIndices[c].second, tubingInterval[c]->second );
             }
-        }
+            std::stable_sort( anchors.begin(), anchors.end(), []( const auto& a, const auto& b ) { return a.first < b.first; } );
+            std::vector<std::pair<size_t, double>> increasing;
+            for ( const auto& anchor : anchors )
+            {
+                if ( increasing.empty() || ( anchor.first > increasing.back().first && anchor.second > increasing.back().second ) )
+                {
+                    increasing.push_back( anchor );
+                }
+            }
 
-        const std::vector<double> alongPath = measuredDepths;
-        for ( size_t i = 0; i < measuredDepths.size() && !increasing.empty(); ++i )
-        {
-            auto next =
-                std::lower_bound( increasing.begin(), increasing.end(), i, []( const auto& a, size_t index ) { return a.first < index; } );
-            if ( next == increasing.begin() )
+            const std::vector<double> alongPath = measuredDepths;
+            for ( size_t i = 0; i < measuredDepths.size() && !increasing.empty(); ++i )
             {
-                measuredDepths[i] = alongPath[i] + increasing.front().second - alongPath[increasing.front().first];
-            }
-            else if ( next == increasing.end() )
-            {
-                measuredDepths[i] = alongPath[i] + increasing.back().second - alongPath[increasing.back().first];
-            }
-            else
-            {
-                const auto&  previous = *( next - 1 );
-                const double span     = alongPath[next->first] - alongPath[previous.first];
-                const double t        = span > 0.0 ? ( alongPath[i] - alongPath[previous.first] ) / span : 0.0;
-                measuredDepths[i]     = previous.second + t * ( next->second - previous.second );
+                auto next =
+                    std::lower_bound( increasing.begin(), increasing.end(), i, []( const auto& a, size_t index ) { return a.first < index; } );
+                if ( next == increasing.begin() )
+                {
+                    measuredDepths[i] = alongPath[i] + increasing.front().second - alongPath[increasing.front().first];
+                }
+                else if ( next == increasing.end() )
+                {
+                    measuredDepths[i] = alongPath[i] + increasing.back().second - alongPath[increasing.back().first];
+                }
+                else
+                {
+                    const auto&  previous = *( next - 1 );
+                    const double span     = alongPath[next->first] - alongPath[previous.first];
+                    const double t        = span > 0.0 ? ( alongPath[i] - alongPath[previous.first] ) / span : 0.0;
+                    measuredDepths[i]     = previous.second + t * ( next->second - previous.second );
+                }
             }
         }
-    }
+        return measuredDepths;
+    };
 
     wellPath->setUnitSystem( caseData->unitsType() );
-    wellPath->setTrajectoryPoints( points, measuredDepths );
+    wellPath->setTrajectoryPoints( points, measuredDepthsOfPath() );
+
+    // Where a completion export does not see a connected cell along the path, e.g. where cells overlap across a fault, the
+    // path makes a detour through the centre of the cell
+    if ( mainGrid.gridCount() == 1 )
+    {
+        std::vector<size_t> detours;
+        const RigWellPath*  firstGeometry = wellPath->wellPathGeometry();
+        for ( size_t c = 0; c < connectionCells.size() && firstGeometry; ++c )
+        {
+            const auto [entry, exit]               = cellPointIndices[c];
+            const auto&  pathMds                   = firstGeometry->measuredDepths();
+            const double margin                    = perforationMargin( pathMds[exit] - pathMds[entry] );
+            const auto [clippedPoints, clippedMds] = firstGeometry->clippedPointSubset( pathMds[entry] + margin, pathMds[exit] - margin );
+            const auto intersections =
+                RigWellPathIntersectionTools::findCellIntersectionInfosAlongPath( caseData, name, clippedPoints, clippedMds );
+            const bool seen = std::any_of( intersections.begin(),
+                                           intersections.end(),
+                                           [&]( const auto& i ) { return i.globCellIndex == connectionCells[c].cellIndex; } );
+            if ( !seen && exit == entry + 1 ) detours.push_back( c );
+        }
+        if ( !detours.empty() )
+        {
+            size_t inserted = 0;
+            for ( size_t c = 0; c < connectionCells.size(); ++c )
+            {
+                cellPointIndices[c].first += inserted;
+                if ( std::find( detours.begin(), detours.end(), c ) != detours.end() )
+                {
+                    points.insert( points.begin() + cellPointIndices[c].first + 1, mainGrid.cell( connectionCells[c].cellIndex ).center() );
+                    inserted++;
+                }
+                cellPointIndices[c].second += inserted;
+            }
+            wellPath->setTrajectoryPoints( points, measuredDepthsOfPath() );
+        }
+    }
 
     const RigWellPath* geometry = wellPath->wellPathGeometry();
     if ( !geometry ) return std::unexpected( "Failed to create the well path geometry." );
