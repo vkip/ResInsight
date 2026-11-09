@@ -78,6 +78,13 @@ struct SectorRegion
 
 std::expected<Result, QString> createSectorModel( RimEclipseView* view, const Settings& settings );
 
+// The folder used when Settings::exportFolder is empty: 'sector_<well>' next to the grid file
+QString defaultExportFolder( const QString& gridFileName, const QString& wellName );
+
+// The make_flux used when Settings::makeFluxExecutable is empty: the one next to the OPM Flow executable of the
+// preferences, else the one in PATH. Empty if there is neither.
+QString defaultMakeFluxExecutable();
+
 std::expected<SectorRegion, QString> computeSectorRegion( RimEclipseCase& eclipseCase, const Settings& settings );
 
 // Convex hull in the XY plane, counter-clockwise, at the given z

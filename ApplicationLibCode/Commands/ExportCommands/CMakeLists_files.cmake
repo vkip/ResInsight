@@ -30,6 +30,7 @@ set(SOURCE_GROUP_SOURCE_FILES
     ${CMAKE_CURRENT_LIST_DIR}/RicWellLgrTools.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RicWellRefinementTools.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RicFluxSectorModelTools.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RicCreateSectorModelUi.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RicExportEnsembleParametersFeature.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RicEclipseCellResultToFileImpl.cpp
     ${CMAKE_CURRENT_LIST_DIR}/RicCreateDepthAdjustedLasFilesFeature.cpp

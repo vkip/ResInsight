@@ -1134,6 +1134,7 @@ caf::CmdFeatureMenuBuilder RimContextCommandBuilder::commandsFromSelection()
             menuBuilder << "RicCreateWellPathFromSimulationWellFeature";
             menuBuilder << "RicCreateApproximateWellPathFeature";
             menuBuilder << "RicCreateWellLgrFeature";
+            menuBuilder << "RicCreateSectorModelFeature";
             menuBuilder << "Separator";
             menuBuilder << "RicEclipseWellShowLabelFeature";
             menuBuilder << "RicEclipseWellShowHeadFeature";

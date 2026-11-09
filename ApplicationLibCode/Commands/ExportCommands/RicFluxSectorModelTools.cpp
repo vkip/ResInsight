@@ -20,6 +20,7 @@
 
 #include "RiaGuiApplication.h"
 #include "RiaLogging.h"
+#include "RiaPreferencesOpm.h"
 
 #include "RicExportLgrFeature.h"
 #include "RicWellLgrTools.h"
@@ -221,8 +222,10 @@ std::expected<QString, QString> resolveMakeFluxExecutable( const QString& makeFl
         return info.absoluteFilePath();
     }
 
-    const QString found = QStandardPaths::findExecutable( "make_flux" );
-    if ( found.isEmpty() ) return std::unexpected( "make_flux was not found in PATH. Specify it with make_flux_executable." );
+    const QString found = RicFluxSectorModelTools::defaultMakeFluxExecutable();
+    if ( found.isEmpty() )
+        return std::unexpected( "make_flux was found neither next to the OPM Flow executable of the preferences nor in PATH. "
+                                "Specify it with make_flux_executable." );
     return found;
 }
 
@@ -1114,6 +1117,31 @@ std::expected<void, QString> RicFluxSectorModelTools::addLgrDimensions( RifOpmFl
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+QString RicFluxSectorModelTools::defaultExportFolder( const QString& gridFileName, const QString& wellName )
+{
+    return QFileInfo( gridFileName ).absolutePath() + "/sector_" + sanitizedName( wellName );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
+QString RicFluxSectorModelTools::defaultMakeFluxExecutable()
+{
+    if ( const auto* preferences = RiaPreferencesOpm::current() )
+    {
+        const QFileInfo flow( preferences->opmFlowCommand() );
+        if ( !preferences->useWsl() && flow.isAbsolute() )
+        {
+            const QFileInfo candidate( flow.absolutePath() + "/make_flux" );
+            if ( candidate.isFile() && candidate.isExecutable() ) return candidate.absoluteFilePath();
+        }
+    }
+    return QStandardPaths::findExecutable( "make_flux" );
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools::createSectorModel( RimEclipseView* view,
                                                                                                     const Settings& settings )
 {
@@ -1140,7 +1168,7 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
         makeFlux = *executable;
     }
 
-    const QString exportFolder = settings.exportFolder.isEmpty() ? gridInfo.absolutePath() + "/sector_" + sanitizedName( settings.wellName )
+    const QString exportFolder = settings.exportFolder.isEmpty() ? defaultExportFolder( gridFileName, settings.wellName )
                                                                  : QFileInfo( settings.exportFolder ).absoluteFilePath();
     if ( !QDir().mkpath( exportFolder ) ) return std::unexpected( QString( "Could not create the folder '%1'." ).arg( exportFolder ) );
 
