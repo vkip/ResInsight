@@ -70,6 +70,9 @@ RimWellRefinementRegion::RimWellRefinementRegion()
     CAF_PDM_InitScriptableField( &m_layersY, "LayersY", 3, "Y Layers" );
     CAF_PDM_InitScriptableField( &m_refinementZ, "RefinementZ", 1, "Z Refinement" );
     CAF_PDM_InitScriptableField( &m_layersZ, "LayersZ", 1, "Z Layers" );
+    CAF_PDM_InitScriptableField( &m_fullColumn, "FullColumn", false, "Entire Column" );
+    m_fullColumn.uiCapability()->setUiToolTip(
+        "Refine every layer of the refined columns that has active cells by the Z refinement, instead of layers around the well" );
 
     CAF_PDM_InitScriptableField( &m_boxes,
                                  "Boxes",
@@ -153,6 +156,7 @@ RicWellLgrTools::RingSettings RimWellRefinementRegion::ringSettings() const
         settings.refinement = { m_lateralRefinement(), m_lateralRefinement(), m_refinementZ() };
         settings.layers     = { m_lateralLayers(), m_lateralLayers(), m_layersZ() };
     }
+    settings.fullColumn = m_fullColumn();
     return settings;
 }
 
@@ -170,6 +174,7 @@ void RimWellRefinementRegion::setRingSettings( const RicWellLgrTools::RingSettin
     m_layersY           = settings.layers[1];
     m_refinementZ       = settings.refinement[2];
     m_layersZ           = settings.layers[2];
+    m_fullColumn        = settings.fullColumn;
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -188,6 +193,7 @@ void RimWellRefinementRegion::copySettingsFrom( const RimWellRefinementRegion& o
     m_layersY           = other.m_layersY();
     m_refinementZ       = other.m_refinementZ();
     m_layersZ           = other.m_layersZ();
+    m_fullColumn        = other.m_fullColumn();
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -282,7 +288,8 @@ void RimWellRefinementRegion::defineUiOrdering( QString uiConfigName, caf::PdmUi
 
     auto* vertical = uiOrdering.addNewGroup( "Vertical Refinement (Z)" );
     vertical->add( &m_refinementZ );
-    vertical->add( &m_layersZ );
+    vertical->add( &m_fullColumn );
+    if ( !m_fullColumn() ) vertical->add( &m_layersZ );
 
     const auto  rings = ringSettings();
     QStringList factors;

@@ -160,4 +160,5 @@ private:
     caf::PdmField<int>     m_layersY;
     caf::PdmField<int>     m_refinementZ;
     caf::PdmField<int>     m_layersZ;
+    caf::PdmField<bool>    m_fullColumn;
 };

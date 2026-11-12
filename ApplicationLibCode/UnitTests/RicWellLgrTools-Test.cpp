@@ -316,6 +316,21 @@ TEST( RicWellLgrToolsTest, WellRingBoxes )
     EXPECT_EQ( boxFactors( graded, 1, 1, 0 ), F( { 2, 1, 2 } ) );
     EXPECT_EQ( boxFactors( graded, 0, 0, 1 ), F( { 4, 3, 1 } ) );
     EXPECT_EQ( boxFactors( graded, 2, 0, 0 ), F( { 0, 0, 0 } ) );
+
+    // The entire column of the rings refined 2 x vertically, whichever layers the path is in
+    RicWellLgrTools::RingSettings column;
+    column.refinement = { 3, 3, 2 };
+    column.fullColumn = true;
+    const auto full   = RicWellLgrTools::wellRingBoxes( path, column, { 20, 20, 8 } );
+    EXPECT_EQ( boxFactors( full, 10, 10, 0 ), F( { 9, 9, 2 } ) );
+    EXPECT_EQ( boxFactors( full, 10, 10, 7 ), F( { 9, 9, 2 } ) );
+    EXPECT_EQ( boxFactors( full, 8, 12, 6 ), F( { 3, 3, 2 } ) );
+    EXPECT_EQ( boxFactors( full, 7, 10, 3 ), F( { 0, 0, 0 } ) );
+    for ( const auto& box : full )
+    {
+        EXPECT_EQ( box.min.k(), 0u );
+        EXPECT_EQ( box.max.k(), 7u );
+    }
 }
 
 //--------------------------------------------------------------------------------------------------

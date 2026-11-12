@@ -79,6 +79,7 @@ private:
     caf::PdmField<int>  m_layersY;
     caf::PdmField<int>  m_refinementZ;
     caf::PdmField<int>  m_layersZ;
+    caf::PdmField<bool> m_fullColumn;
 
     // Nine values per box: I, J, K of the first and the last host cell (zero-based), then the refinement in I, J, K
     caf::PdmField<std::vector<int>> m_boxes;

@@ -438,7 +438,8 @@ RimEclipseView_createWellRefinement::RimEclipseView_createWellRefinement( caf::P
                         "",
                         "Create the approximate well path of a simulation well and amalgamated LGRs around its perforated part, as "
                         "Well Refinements of the view. The path cells are refined refinement * layers times laterally, the ring of "
-                        "cells around them refinement * (layers - 1) times, and so on; vertically likewise in layers above and below. "
+                        "cells around them refinement * (layers - 1) times, and so on; vertically likewise in layers above and below, "
+                        "or, with full_column, refinement_z times in every layer of the refined columns that has active cells. "
                         "Previous Well Refinements of the well are replaced." );
 
     CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
@@ -458,6 +459,14 @@ RimEclipseView_createWellRefinement::RimEclipseView_createWellRefinement( caf::P
     CAF_PDM_InitScriptableField( &m_layersY, "LayersY", 0, "Layers Y", "", "", "nlayers in Y, if not 0" );
     CAF_PDM_InitScriptableField( &m_refinementZ, "RefinementZ", 1, "Refinement Z", "", "", "nref in Z" );
     CAF_PDM_InitScriptableField( &m_layersZ, "LayersZ", 1, "Layers Z", "", "", "nlayers in Z" );
+    CAF_PDM_InitScriptableField( &m_fullColumn,
+                                 "FullColumn",
+                                 false,
+                                 "Full Column",
+                                 "",
+                                 "",
+                                 "Refine every layer of the refined columns that has active cells refinement_z times, instead of "
+                                 "layers_z layers around the well" );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -473,6 +482,7 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createWellRefinemen
                          m_refinementY() > 0 ? m_refinementY() : m_lateralRefinement(),
                          m_refinementZ() };
     rings.layers = { m_layersX() > 0 ? m_layersX() : m_lateralLayers(), m_layersY() > 0 ? m_layersY() : m_lateralLayers(), m_layersZ() };
+    rings.fullColumn = m_fullColumn();
 
     auto region = RicWellRefinementTools::createWellRefinement( view, m_wellName(), m_timeStep(), m_lgrName(), rings );
     if ( !region ) return std::unexpected( region.error() );

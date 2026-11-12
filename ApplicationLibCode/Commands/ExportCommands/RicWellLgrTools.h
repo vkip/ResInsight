@@ -112,11 +112,13 @@ LgrInfo                          lgrInfoFromTemporaryLgr( const RigMainGrid& mai
 
 // Refinement in rings around the cells of a well path, per direction (I, J, K): the path cells are refined
 // refinement * layers times, the ring around them refinement * (layers - 1) times, and so on, laterally in
-// rings of cells around the path cells in the same layer, vertically in layers above and below them.
+// rings of cells around the path cells in the same layer, vertically in layers above and below them. With
+// fullColumn, every layer of the refined columns is refined refinement[2] times vertically instead.
 struct RingSettings
 {
     std::array<int, 3> refinement = { 3, 3, 1 };
     std::array<int, 3> layers     = { 3, 3, 1 };
+    bool               fullColumn = false;
 };
 
 struct RefinedBox

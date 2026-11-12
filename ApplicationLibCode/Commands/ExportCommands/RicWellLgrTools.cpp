@@ -747,7 +747,8 @@ std::vector<RicWellLgrTools::RefinedBox>
     const int               verticalRings = settings.layers[2];
     if ( pathCells.empty() || lateralRings < 1 || verticalRings < 1 ) return boxes;
 
-    const std::array<int, 3> reach = { lateralRings - 1, lateralRings - 1, verticalRings - 1 };
+    const int                verticalReach = settings.fullColumn ? static_cast<int>( gridCellCount[2] ) : verticalRings - 1;
+    const std::array<int, 3> reach         = { lateralRings - 1, lateralRings - 1, verticalReach };
     std::array<int, 3>       lo{}, hi{};
     for ( int d = 0; d < 3; ++d )
     {
@@ -771,7 +772,7 @@ std::vector<RicWellLgrTools::RefinedBox>
         const int pi = static_cast<int>( p.i() ), pj = static_cast<int>( p.j() ), pk = static_cast<int>( p.k() );
         for ( int k = std::max( pk - reach[2], lo[2] ); k <= std::min( pk + reach[2], hi[2] ); ++k )
         {
-            const int fz = settings.refinement[2] * ( verticalRings - std::abs( k - pk ) );
+            const int fz = settings.fullColumn ? settings.refinement[2] : settings.refinement[2] * ( verticalRings - std::abs( k - pk ) );
             for ( int j = std::max( pj - reach[1], lo[1] ); j <= std::min( pj + reach[1], hi[1] ); ++j )
             {
                 for ( int i = std::max( pi - reach[0], lo[0] ); i <= std::min( pi + reach[0], hi[0] ); ++i )
@@ -894,8 +895,42 @@ std::expected<std::vector<LgrInfo>, QString> RicWellLgrTools::buildWellRefinemen
     auto boxes = wellRingBoxes( pathCells, settings.rings, { mainGrid.cellCountI(), mainGrid.cellCountJ(), mainGrid.cellCountK() } );
     if ( boxes.empty() ) return std::unexpected( "The settings refine no cells." );
 
+    const RigActiveCellInfo* activeCells = caseData->activeCellInfo( RiaDefines::PorosityModelType::MATRIX_MODEL );
+
+    // A refinement of the entire column covers the layers with active cells in the refined columns, leaving out
+    // the inactive layers between them
+    if ( settings.rings.fullColumn && activeCells )
+    {
+        std::vector<bool> activeLayer( mainGrid.cellCountK(), false );
+        for ( const auto& box : boxes )
+            for ( size_t k = box.min.k(); k <= box.max.k(); ++k )
+                for ( size_t j = box.min.j(); j <= box.max.j() && !activeLayer[k]; ++j )
+                    for ( size_t i = box.min.i(); i <= box.max.i() && !activeLayer[k]; ++i )
+                    {
+                        if ( activeCells->isActive( ReservoirCellIndex( mainGrid.cellIndexFromIJK( i, j, k ) ) ) ) activeLayer[k] = true;
+                    }
+
+        std::vector<RefinedBox> split;
+        for ( const auto& box : boxes )
+        {
+            for ( size_t k = box.min.k(); k <= box.max.k(); ++k )
+            {
+                if ( !activeLayer[k] ) continue;
+                size_t last = k;
+                while ( last + 1 <= box.max.k() && activeLayer[last + 1] )
+                    ++last;
+                RefinedBox part = box;
+                part.min        = caf::VecIjk0( box.min.i(), box.min.j(), k );
+                part.max        = caf::VecIjk0( box.max.i(), box.max.j(), last );
+                split.push_back( part );
+                k = last;
+            }
+        }
+        boxes = std::move( split );
+    }
+
     // Boxes without active cells are left out, as a simulator cannot refine them (OPM Flow stops with an error)
-    if ( const RigActiveCellInfo* activeCells = caseData->activeCellInfo( RiaDefines::PorosityModelType::MATRIX_MODEL ) )
+    if ( activeCells )
     {
         const auto hasActiveCell = [&]( const RefinedBox& box )
         {
