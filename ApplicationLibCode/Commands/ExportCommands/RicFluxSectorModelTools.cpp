@@ -411,11 +411,15 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
     if ( !caseData || !caseData->mainGrid() ) return std::unexpected( "The case has no grid." );
     const RigMainGrid& mainGrid = *caseData->mainGrid();
 
-    const auto wellCells = RicWellLgrTools::simulationWellCells( *caseData, settings.wellName );
-    if ( wellCells.empty() ) return std::unexpected( QString( "Well '%1' has no connections in the main grid." ).arg( settings.wellName ) );
+    const QStringList wells = sectorWells( settings );
 
     CellSet required;
-    addLaterallyExpanded( wellCells, settings.marginCells, mainGrid, required );
+    for ( const auto& well : wells )
+    {
+        const auto wellCells = RicWellLgrTools::simulationWellCells( *caseData, well );
+        if ( wellCells.empty() ) return std::unexpected( QString( "Well '%1' has no connections in the main grid." ).arg( well ) );
+        addLaterallyExpanded( wellCells, settings.marginCells, mainGrid, required );
+    }
 
     // LGRs around the well are kept away from the sector boundary
     CellSet     lgrWithPadding;
@@ -451,7 +455,7 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
     std::map<QString, CellSet> objects = lgrHostCells( mainGrid, lgrNames );
     for ( const auto& wellData : caseData->wellResults() )
     {
-        if ( wellData->m_wellName == settings.wellName ) continue;
+        if ( wells.contains( wellData->m_wellName ) ) continue;
         auto cells = RicWellLgrTools::simulationWellCells( *caseData, wellData->m_wellName );
         if ( !cells.empty() ) objects["well " + wellData->m_wellName] = cells;
     }
@@ -515,7 +519,7 @@ std::expected<RicFluxSectorModelTools::SectorRegion, QString> RicFluxSectorModel
 
         if ( !expanded ) break;
     }
-    region.wellsInSector.push_front( settings.wellName );
+    region.wellsInSector = wells + region.wellsInSector;
 
     // The whole LGR and the cells around it must be in the sector
     const RigActiveCellInfo* activeInfo = caseData->activeCellInfo( RiaDefines::PorosityModelType::MATRIX_MODEL );
@@ -1125,6 +1129,19 @@ QString RicFluxSectorModelTools::defaultExportFolder( const QString& gridFileNam
 //--------------------------------------------------------------------------------------------------
 ///
 //--------------------------------------------------------------------------------------------------
+QStringList RicFluxSectorModelTools::sectorWells( const Settings& settings )
+{
+    QStringList wells = { settings.wellName };
+    for ( const auto& well : settings.additionalWells )
+    {
+        if ( !well.isEmpty() && !wells.contains( well ) ) wells.push_back( well );
+    }
+    return wells;
+}
+
+//--------------------------------------------------------------------------------------------------
+///
+//--------------------------------------------------------------------------------------------------
 QString RicFluxSectorModelTools::defaultMakeFluxExecutable()
 {
     if ( const auto* preferences = RiaPreferencesOpm::current() )
@@ -1150,27 +1167,38 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
     if ( !eclipseCase || !eclipseCase->eclipseCaseData() || !eclipseCase->eclipseCaseData()->mainGrid() )
         return std::unexpected( "The view has no case with a grid." );
     if ( settings.wellName.isEmpty() ) return std::unexpected( "No well name specified." );
-    if ( !eclipseCase->eclipseCaseData()->findSimWellData( settings.wellName ) )
-        return std::unexpected( QString( "The case has no well named '%1'." ).arg( settings.wellName ) );
+    const QStringList wells = sectorWells( settings );
+    for ( const auto& well : wells )
+    {
+        if ( !eclipseCase->eclipseCaseData()->findSimWellData( well ) )
+            return std::unexpected( QString( "The case has no well named '%1'." ).arg( well ) );
+    }
+    const QString sectorName = wells.join( ", " );
 
     const RigMainGrid& mainGrid     = *eclipseCase->eclipseCaseData()->mainGrid();
     const QString      gridFileName = eclipseCase->gridFileName();
     const QFileInfo    gridInfo( gridFileName );
 
-    auto deckFile = resolveDeckFile( gridFileName, settings.deckFile );
-    if ( !deckFile ) return std::unexpected( deckFile.error() );
-
-    QString makeFlux;
-    if ( settings.runMakeFlux )
+    // Files are checked before the view is changed
+    std::expected<QString, QString> deckFile;
+    QString                         makeFlux;
+    QString                         exportFolder;
+    if ( settings.exportFiles )
     {
-        auto executable = resolveMakeFluxExecutable( settings.makeFluxExecutable );
-        if ( !executable ) return std::unexpected( executable.error() );
-        makeFlux = *executable;
-    }
+        deckFile = resolveDeckFile( gridFileName, settings.deckFile );
+        if ( !deckFile ) return std::unexpected( deckFile.error() );
 
-    const QString exportFolder = settings.exportFolder.isEmpty() ? defaultExportFolder( gridFileName, settings.wellName )
-                                                                 : QFileInfo( settings.exportFolder ).absoluteFilePath();
-    if ( !QDir().mkpath( exportFolder ) ) return std::unexpected( QString( "Could not create the folder '%1'." ).arg( exportFolder ) );
+        if ( settings.runMakeFlux )
+        {
+            auto executable = resolveMakeFluxExecutable( settings.makeFluxExecutable );
+            if ( !executable ) return std::unexpected( executable.error() );
+            makeFlux = *executable;
+        }
+
+        exportFolder = settings.exportFolder.isEmpty() ? defaultExportFolder( gridFileName, wells.join( "_" ) )
+                                                       : QFileInfo( settings.exportFolder ).absoluteFilePath();
+        if ( !QDir().mkpath( exportFolder ) ) return std::unexpected( QString( "Could not create the folder '%1'." ).arg( exportFolder ) );
+    }
 
     auto region = computeSectorRegion( *eclipseCase, settings );
     if ( !region ) return std::unexpected( region.error() );
@@ -1182,19 +1210,52 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
         result.warnings.push_back( QString( "The sector was enlarged to hold all of %1." ).arg( name ) );
     }
 
-    // Polygon and polygon filter in the view
+    for ( const auto& well : wells.mid( 1 ) )
+    {
+        if ( !RicWellLgrTools::temporaryLgrsForWell( mainGrid, well ).empty() )
+        {
+            result.warnings.push_back(
+                QString( "The Well LGRs of %1 are not added to the sector deck; only those of %2 are." ).arg( well ).arg( settings.wellName ) );
+        }
+    }
+
+    // Polygon and polygon filter in the view, replacing those of an earlier sector around the same wells
     RimPolygonCollection* polygonCollection = RimTools::polygonCollection();
     if ( !polygonCollection ) return std::unexpected( "The project has no polygon collection." );
 
-    RimPolygon* polygon = polygonCollection->createUserDefinedPolygon();
-    polygon->setName( QString( "Sector %1" ).arg( settings.wellName ) );
+    const QString filterName = QString( "Sector %1" ).arg( sectorName );
+    RimPolygon*   polygon    = nullptr;
+    for ( auto* existing : polygonCollection->allPolygons() )
+    {
+        if ( existing->name() == filterName ) polygon = existing;
+    }
+    if ( !polygon )
+    {
+        polygon = polygonCollection->createUserDefinedPolygon();
+        polygon->setName( filterName );
+        polygonCollection->addUserDefinedPolygon( polygon );
+    }
     polygon->setPointsInDomainCoords( region->polygon );
     polygon->setIsClosed( true );
-    polygonCollection->addUserDefinedPolygon( polygon );
     polygonCollection->uiCapability()->updateAllRequiredEditors();
 
-    RimPolygonFilter* filter = view->cellFilterCollection()->addNewPolygonFilter( eclipseCase, polygon );
-    filter->setName( QString( "Sector %1" ).arg( settings.wellName ) );
+    RimPolygonFilter* filter = nullptr;
+    for ( auto* existing : view->cellFilterCollection()->filters() )
+    {
+        if ( auto* polygonFilter = dynamic_cast<RimPolygonFilter*>( existing ); polygonFilter && polygonFilter->name() == filterName )
+        {
+            filter = polygonFilter;
+        }
+    }
+    if ( filter )
+    {
+        filter->setPolygon( polygon );
+    }
+    else
+    {
+        filter = view->cellFilterCollection()->addNewPolygonFilter( eclipseCase, polygon );
+        filter->setName( filterName );
+    }
     filter->setPolygonFilterMode( RimPolygonFilter::PolygonFilterModeType::DEPTH_Z, RimPolygonFilter::PolygonIncludeType::CENTER );
 
     // The FLUXNUM region is the main grid cells the filter shows
@@ -1226,13 +1287,26 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
 
     view->scheduleCreateDisplayModelAndRedraw();
 
-    const QString baseName = sanitizedName( gridInfo.completeBaseName() + "_SECTOR_" + settings.wellName ).toUpper();
+    if ( !settings.exportFiles )
+    {
+        RiaLogging::info( QString( "Sector around %1: %2 cells (%3 active), wells %4. Not exported." )
+                              .arg( sectorName )
+                              .arg( result.sectorCellCount )
+                              .arg( result.activeSectorCellCount )
+                              .arg( result.wellsInSector.join( ", " ) )
+                              .toStdString() );
+        return result;
+    }
+
+    const QString baseName = sanitizedName( gridInfo.completeBaseName() + "_SECTOR_" + wells.join( "_" ) ).toUpper();
     result.fluxnumFile     = exportFolder + "/" + baseName + "_FLUXNUM.grdecl";
     result.fluxFile        = exportFolder + "/" + baseName + ".FLUX";
     result.deckFile        = exportFolder + "/" + baseName + ".DATA";
 
-    const QString header =
-        QString( "-- Sector around well %1 in %2, written by ResInsight\n" ).arg( settings.wellName ).arg( gridInfo.fileName() );
+    const QString header = QString( "-- Sector around %1 %2 in %3, written by ResInsight\n" )
+                               .arg( wells.size() > 1 ? "wells" : "well" )
+                               .arg( sectorName )
+                               .arg( gridInfo.fileName() );
     if ( !writeIntKeyword( result.fluxnumFile, "FLUXNUM", fluxnum, header ) )
     {
         return std::unexpected( QString( "Could not write '%1'." ).arg( result.fluxnumFile ) );
@@ -1352,8 +1426,8 @@ std::expected<RicFluxSectorModelTools::Result, QString> RicFluxSectorModelTools:
         return std::unexpected( QString( "Failed to write the sector deck '%1'." ).arg( result.deckFile ) );
     }
 
-    RiaLogging::info( QString( "Sector model around well '%1': %2 cells (%3 active), wells %4. Deck: %5" )
-                          .arg( settings.wellName )
+    RiaLogging::info( QString( "Sector model around %1: %2 cells (%3 active), wells %4. Deck: %5" )
+                          .arg( sectorName )
                           .arg( result.sectorCellCount )
                           .arg( result.activeSectorCellCount )
                           .arg( result.wellsInSector.join( ", " ) )

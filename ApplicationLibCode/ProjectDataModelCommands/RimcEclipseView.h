@@ -123,14 +123,16 @@ public:
     QString                                       classKeywordReturnedType() const override;
 
 private:
-    caf::PdmField<QString> m_wellName;
-    caf::PdmField<QString> m_exportFolder;
-    caf::PdmField<QString> m_deckFile;
-    caf::PdmField<QString> m_makeFluxExecutable;
-    caf::PdmField<int>     m_marginCells;
-    caf::PdmField<int>     m_wellPaddingCells;
-    caf::PdmField<int>     m_lgrPaddingCells;
-    caf::PdmField<bool>    m_runMakeFlux;
+    caf::PdmField<QString>              m_wellName;
+    caf::PdmField<QString>              m_exportFolder;
+    caf::PdmField<QString>              m_deckFile;
+    caf::PdmField<QString>              m_makeFluxExecutable;
+    caf::PdmField<int>                  m_marginCells;
+    caf::PdmField<int>                  m_wellPaddingCells;
+    caf::PdmField<int>                  m_lgrPaddingCells;
+    caf::PdmField<bool>                 m_runMakeFlux;
+    caf::PdmField<std::vector<QString>> m_additionalWells;
+    caf::PdmField<bool>                 m_exportFiles;
 };
 
 //==================================================================================================

@@ -44,15 +44,17 @@ namespace RicFluxSectorModelTools
 {
 struct Settings
 {
-    QString wellName;
-    QString exportFolder; // Empty: 'sector_<well>' next to the grid file
-    QString deckFile; // Empty: the DATA file next to the grid file, else the user is asked
-    QString makeFluxExecutable; // Empty: make_flux from PATH
-    int     marginCells        = 3; // Main grid cells around the well connections, laterally
-    int     wellPaddingCells   = 2; // Cells around a well that would otherwise be cut by the sector boundary
-    int     lgrPaddingCells    = 2; // Cells between an LGR and the sector boundary
-    bool    runMakeFlux        = true;
-    int     maxExpansionPasses = 50;
+    QString     wellName;
+    QStringList additionalWells; // Further wells the sector is built around, with the same margin
+    bool        exportFiles = true; // False: only show the sector in the view
+    QString     exportFolder; // Empty: 'sector_<well>' next to the grid file
+    QString     deckFile; // Empty: the DATA file next to the grid file, else the user is asked
+    QString     makeFluxExecutable; // Empty: make_flux from PATH
+    int         marginCells        = 3; // Main grid cells around the well connections, laterally
+    int         wellPaddingCells   = 2; // Cells around a well that would otherwise be cut by the sector boundary
+    int         lgrPaddingCells    = 2; // Cells between an LGR and the sector boundary
+    bool        runMakeFlux        = true;
+    int         maxExpansionPasses = 50;
 };
 
 struct Result
@@ -80,6 +82,9 @@ std::expected<Result, QString> createSectorModel( RimEclipseView* view, const Se
 
 // The folder used when Settings::exportFolder is empty: 'sector_<well>' next to the grid file
 QString defaultExportFolder( const QString& gridFileName, const QString& wellName );
+
+// The wells the sector is built around: the well, then the additional wells, each once
+QStringList sectorWells( const Settings& settings );
 
 // The make_flux used when Settings::makeFluxExecutable is empty: the one next to the OPM Flow executable of the
 // preferences, else the one in PATH. Empty if there is neither.

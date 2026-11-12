@@ -320,10 +320,12 @@ RimEclipseView_createSectorModelForWell::RimEclipseView_createSectorModelForWell
     CAF_PDM_InitObject( "Create Sector Model for Well",
                         "",
                         "",
-                        "Create a sector model around a simulation well for an OPM Flow run with USEFLUX. The sector is "
-                        "shown as a polygon filter in the view and exported as a FLUXNUM region, make_flux builds its "
-                        "boundary data, and the deck is copied with USEFLUX, FLUXREG and the region added. A temporary "
-                        "LGR around the well is added to the sector deck, with the well moved into it." );
+                        "Create a sector model around a simulation well, and optionally more wells, for an OPM Flow run "
+                        "with USEFLUX. The sector is shown as a polygon filter in the view, replacing one of an earlier "
+                        "sector around the same wells, and exported as a FLUXNUM region, make_flux builds its boundary "
+                        "data, and the deck is copied with USEFLUX, FLUXREG and the region added. The Well LGRs of the "
+                        "well are added to the sector deck, with the well moved into them. With export_files false, the "
+                        "sector is only shown in the view." );
 
     CAF_PDM_InitScriptableField( &m_wellName, "WellName", QString(), "Well Name", "", "", "Name of the simulation well" );
     CAF_PDM_InitScriptableField( &m_exportFolder,
@@ -346,7 +348,7 @@ RimEclipseView_createSectorModelForWell::RimEclipseView_createSectorModelForWell
                                  "make_flux Executable",
                                  "",
                                  "",
-                                 "Path to make_flux. Default: make_flux in PATH" );
+                                 "Path to make_flux. Default: next to the OPM Flow executable of the preferences, else in PATH" );
     CAF_PDM_InitScriptableField( &m_marginCells, "MarginCells", 3, "Margin Cells", "", "", "Main grid cells around the well connections, laterally" );
     CAF_PDM_InitScriptableField( &m_wellPaddingCells,
                                  "WellPaddingCells",
@@ -363,6 +365,19 @@ RimEclipseView_createSectorModelForWell::RimEclipseView_createSectorModelForWell
                                  "",
                                  "Cells between the LGR around the well and the sector boundary" );
     CAF_PDM_InitScriptableField( &m_runMakeFlux, "RunMakeFlux", true, "Run make_flux", "", "", "Build the FLUX file with make_flux" );
+    CAF_PDM_InitScriptableFieldNoDefault( &m_additionalWells,
+                                          "AdditionalWells",
+                                          "Additional Wells",
+                                          "",
+                                          "",
+                                          "Further simulation wells the sector is built around, with the same margin" );
+    CAF_PDM_InitScriptableField( &m_exportFiles,
+                                 "ExportFiles",
+                                 true,
+                                 "Export Files",
+                                 "",
+                                 "",
+                                 "Export the FLUXNUM, FLUX and deck files. False: only show the sector in the view" );
 }
 
 //--------------------------------------------------------------------------------------------------
@@ -381,6 +396,11 @@ std::expected<caf::PdmObjectHandle*, QString> RimEclipseView_createSectorModelFo
     settings.wellPaddingCells   = m_wellPaddingCells();
     settings.lgrPaddingCells    = m_lgrPaddingCells();
     settings.runMakeFlux        = m_runMakeFlux();
+    settings.exportFiles        = m_exportFiles();
+    for ( const auto& well : m_additionalWells() )
+    {
+        settings.additionalWells.push_back( well );
+    }
 
     auto result = RicFluxSectorModelTools::createSectorModel( view, settings );
     if ( !result ) return std::unexpected( result.error() );
